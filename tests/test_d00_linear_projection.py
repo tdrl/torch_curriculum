@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from torch.utils.data import DataLoader
 
 from torch_playground.d00_linear_projection import HRLinear, create_data
 
@@ -67,3 +68,16 @@ class TestHRLinear:
                                            [9*1 + 10*3 + 5, 9*2 + 10*4 + 6],
                                            [11*1 + 12*3 + 5, 11*2 + 12*4 + 6]], dtype=torch.int32)
         assert torch.equal(output, expected_output), f'Expected {expected_output}, got {output}'
+
+
+    def test_iterating_over_dataset(self):
+        """Test if iterating over the dataset returns correct data."""
+        input_dim = 3
+        n_samples = 100
+        batch_size = 5
+        dataset = create_data(input_dim, n_samples)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        for idx, batch in enumerate(dataloader):
+            assert batch[0].shape[1] == input_dim, f'Batch shape mismatch: {batch[0].shape}'
+            assert batch[0].dtype == torch.int32, f'Batch dtype mismatch: {batch[0].dtype}'
+            assert len(batch[0]) == batch_size, f'Expected batch size {batch_size}, got {len(batch[0])} (batch {idx})'

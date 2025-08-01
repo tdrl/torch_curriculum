@@ -4,6 +4,7 @@ from torch_playground.util import setup_logging
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset
+from torchinfo import summary
 import argparse
 from typing import Optional
 from pathlib import Path
@@ -76,24 +77,30 @@ def parse_args() -> Arguments:
     return parser.parse_args(namespace=Arguments())
 
 
+def save_tensor(tensor: torch.Tensor, path: Path):
+    """Save a tensor to a file."""
+    torch.save(tensor, path.with_suffix('.pt'))
+    with open(path.with_suffix('.txt'), 'w') as f:
+        f.write(str(tensor.tolist()))
+
+
 def main(logger: Logger, args: Arguments):
     output_dir = Path(args.output_dir) / 'd00_linear_projection'
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f'Output directory: {output_dir}')
     model = HRLinear(input_dim=args.input_dim, output_dim=args.output_dim)
+    logger.debug(f'Model = {model}')
+    summary(model)
     torch.save(model.state_dict(), output_dir / 'model.pth')
     with open(output_dir / 'model.txt', 'w') as f:
         f.write(str(model))
     logger.debug(f'Model parameters: W={model.W}, b={model.b}')
-    # model.compile()
     x = create_data(args.input_dim, args.n_samples)
-    torch.save(x, output_dir / 'x.pt')
-    with open(output_dir / 'x.txt', 'w') as f:
-        f.write(str(x.tensors[0].tolist()))
-    y = model(x)
-    torch.save(y, output_dir / 'y.pt')
+    save_tensor(x.tensors[0], output_dir / 'x.txt')
+    y = model(x.tensors[0])
+    save_tensor(y, output_dir / 'y.txt')
     for i in range(args.n_samples):
-        logger.info(f'{i}: {x[i]} -> {i}: {y[i]}')
+        logger.debug(f'{i}: {x[i]} -> {i}: {y[i]}')
 
 
 if __name__ == '__main__':
