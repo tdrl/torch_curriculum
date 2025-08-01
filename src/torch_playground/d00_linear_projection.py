@@ -1,6 +1,6 @@
 """Simplest possible torch demo: linear projection with integer values."""
 
-from util import setup_logging
+from torch_playground.util import setup_logging
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
