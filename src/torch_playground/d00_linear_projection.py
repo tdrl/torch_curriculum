@@ -3,7 +3,7 @@
 from torch_playground.util import setup_logging
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import TensorDataset
 import argparse
 from typing import Optional
 from pathlib import Path
@@ -12,17 +12,26 @@ from dataclasses import dataclass
 
 
 class HRLinear(nn.Module):
-    """A simple linear projection model."""
+    """A simple linear projection model.
+
+    This model assumes that data points are rows in the input tensor.
+    """
 
     def __init__(self, input_dim: int, output_dim: int, W: Optional[torch.Tensor] = None, b: Optional[torch.Tensor] = None):
         super(HRLinear, self).__init__()
+        assert input_dim > 0, 'Input dimension must be positive.'
+        assert output_dim > 0, 'Output dimension must be positive.'
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         if W is None:
             self.W = torch.randint(-10, 10, (input_dim, output_dim), dtype=torch.int32)
         else:
+            assert W.shape == (input_dim, output_dim), 'Weight tensor shape mismatch.'
             self.W = W
         if b is None:
             self.b = torch.randint(-10, 10, (output_dim,), dtype=torch.int32)
         else:
+            assert b.shape == (output_dim,), 'Bias tensor shape mismatch.'
             self.b = b
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -31,7 +40,19 @@ class HRLinear(nn.Module):
 
 
 def create_data(input_dim: int, n: int) -> TensorDataset:
-    """Create a dataset of random integer inputs and outputs."""
+    """Create a dataset of random integer inputs.
+
+    Data points are rows.
+
+    Args:
+        input_dim (int): The dimension of the input features.
+        n (int): The number of samples to generate.
+
+    Returns:
+        TensorDataset: A dataset containing random integer inputs.
+    """
+    assert input_dim > 0, 'Input dimension must be positive.'
+    assert n > 0, 'Number of samples must be positive.'
     x = torch.randint(-10, 10, (n, input_dim), dtype=torch.int32)
     return TensorDataset(x)
 
@@ -56,7 +77,7 @@ def parse_args() -> Arguments:
 
 
 def main(logger: Logger, args: Arguments):
-    output_dir = Path(args.output_dir) / '00_linear_projection'
+    output_dir = Path(args.output_dir) / 'd00_linear_projection'
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f'Output directory: {output_dir}')
     model = HRLinear(input_dim=args.input_dim, output_dim=args.output_dim)
