@@ -9,7 +9,6 @@ from torch_playground.d00_linear_projection import HRLinear, create_data
 class TestHRLinear:
     """Test cases for the HRLinear model."""
 
-
     @pytest.mark.parametrize('n_samples', [1, 5, 10, 1000])
     def test_data_creation_ds_size(self, n_samples):
         """Test if data creation returns a TensorDataset with correct shape."""
