@@ -21,7 +21,7 @@ class DemoApp(App):
 
     def __init__(self):
         """Initialize the demo application with command line arguments."""
-        super().__init__(self.DemoArguments())
+        super().__init__(self.DemoArguments(), description='Demo Application for Torch Playground',)
         self.logger.info('DemoApp initialized with arguments', **asdict(self.args))
 
     def run(self):
@@ -32,6 +32,12 @@ class DemoApp(App):
         self.logger.warning('This is a warning message.')
         self.logger.error('This is an error message.')
         self.logger.critical('This is a critical message.')
+        try:
+            x = 3
+            y = 'Goodbye, cruel world!'
+            raise RuntimeError('This is a simulated runtime error for demonstration purposes.')
+        except RuntimeError as e:
+            self.logger.exception('An exception occurred', exc_info=e)
 
 
 if __name__ == '__main__':

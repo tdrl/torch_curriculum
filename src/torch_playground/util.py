@@ -43,9 +43,9 @@ class BaseArguments:
                          })
 
 
-def parse_cmd_line_args[T: BaseArguments](arg_template: T, argv: Optional[list[str]]) -> T:
+def parse_cmd_line_args[T: BaseArguments](arg_template: T, description: Optional[str], argv: Optional[list[str]]) -> T:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=description)
     for field in fields(arg_template):
         parser.add_argument(f'--{field.name}',
                             type=field.type,
@@ -73,61 +73,6 @@ def setup_logging(args: BaseArguments) -> structlog.BoundLogger:
     # Ensure logdir exists
     logdir = args.logdir
     logdir.mkdir(parents=True, exist_ok=True)
-
-    # Helper: ISO-8601 time
-    timestamper = TimeStamper(fmt='iso', utc=True)
-
-    # # File sinks
-    # debug_file = open(logdir / 'debug.log', 'a', encoding='utf-8')
-    # warning_file = open(logdir / 'warning.log', 'a', encoding='utf-8')
-
-    # def file_sink_factory(fileobj, min_level):
-    #     def sink(event_dict):
-    #         if event_dict['level'] >= min_level:
-    #             # Format: ISO-8601|LEVEL|LOGGER> message
-    #             ts = event_dict.get('timestamp', '')
-    #             lvl = event_dict.get('level_name', '')
-    #             name = event_dict.get('logger', '')
-    #             msg = event_dict.get('event', '')
-    #             fileobj.write(f'{ts}|{lvl}|{name}> {msg}\n')
-    #             fileobj.flush()
-    #         return event_dict
-    #     return sink
-
-    # # Stdout sink
-    # def stdout_sink(event_dict):
-    #     if event_dict['level'] >= level_stdout:
-    #         ts = event_dict.get('timestamp', '')
-    #         lvl = event_dict.get('level_name', '')
-    #         name = event_dict.get('logger', '')
-    #         msg = event_dict.get('event', '')
-    #         print(f'{ts}|{lvl}|{name}> {msg}', file=sys.stdout)
-    #     return event_dict
-
-    # Compose processors
-    processors = [
-        timestamper,
-        add_log_level,
-        PositionalArgumentsFormatter(),
-        StackInfoRenderer(),
-        UnicodeDecoder(),
-        ConsoleRenderer(colors=True,
-                         level_styles={
-            'debug': BLUE,
-            'info': GREEN,
-            'warning': YELLOW,
-            'error': RED,
-            'critical': RED_BACK,
-        }),
-    ]
-
-    structlog.configure(
-        processors=processors,
-        wrapper_class=structlog.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
     return structlog.get_logger(__name__)
 
 
@@ -152,8 +97,8 @@ class App:
     This class provides a common interface for applications, including methods for running the application
     and setting up logging.
     """
-    def __init__(self, arg_template: BaseArguments, argv: Optional[list[str]] = None):
-        self.args = parse_cmd_line_args(arg_template=arg_template, argv=argv)
+    def __init__(self, arg_template: BaseArguments, description: Optional[str], argv: Optional[list[str]] = None):
+        self.args = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
         self.logger = setup_logging(self.args)
 
     def run(self):
