@@ -11,32 +11,25 @@ from dataclasses import dataclass, field, asdict
 import json
 
 
-class HRLinear(nn.Module):
-    """A simple linear projection model.
+class HRLinearTrainable(nn.Module):
+    """A simple linear classifier, without bias; trainable.
 
     This model assumes that data points are rows in the input tensor.
     """
 
-    def __init__(self, input_dim: int, output_dim: int, W: Optional[torch.Tensor] = None, b: Optional[torch.Tensor] = None):
-        super(HRLinear, self).__init__()
+    def __init__(self, input_dim: int, W: Optional[torch.Tensor] = None, dtype: torch.dtype = torch.float32):
+        super().__init__()
         assert input_dim > 0, 'Input dimension must be positive.'
-        assert output_dim > 0, 'Output dimension must be positive.'
         self.input_dim = input_dim
-        self.output_dim = output_dim
         if W is None:
-            self.W = torch.randint(-10, 10, (input_dim, output_dim), dtype=torch.int32)
+            self.W = torch.randn((input_dim,), dtype=dtype, requires_grad=True)
         else:
-            assert W.shape == (input_dim, output_dim), 'Weight tensor shape mismatch.'
+            assert W.shape == (input_dim,), 'Weight tensor shape mismatch.'
             self.W = W
-        if b is None:
-            self.b = torch.randint(-10, 10, (output_dim,), dtype=torch.int32)
-        else:
-            assert b.shape == (output_dim,), 'Bias tensor shape mismatch.'
-            self.b = b
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the linear layer."""
-        return x @ self.W + self.b
+        return ((x @ self.W) > 0) * 2 - 1  # Returns -1 or 1 based on the sign of the linear combination.
 
 
 @dataclass
@@ -96,6 +89,8 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
             save_tensor(discriminator, self.args.output_dir / 'discriminator')
             save_tensor(data.tensors[0], self.args.output_dir / 'X')
             save_tensor(data.tensors[1], self.args.output_dir / 'y')
+            self.model = HRLinearTrainable(input_dim=self.args.dim, dtype=self.dtype)
+            self.logger.info('Model summary', model=summary(self.model, input_size=(self.args.num_train_samples, self.args.dim)))
         except Exception as e:
             self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)
             raise
