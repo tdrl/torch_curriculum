@@ -5,12 +5,15 @@ import structlog
 from structlog.processors import TimeStamper, StackInfoRenderer, UnicodeDecoder
 from structlog.dev import ConsoleRenderer, RichTracebackFormatter, RED, GREEN, BLUE, MAGENTA, YELLOW, CYAN, RED_BACK, BRIGHT
 from structlog.stdlib import add_log_level, PositionalArgumentsFormatter
+import logging
 
 from dataclasses import dataclass, fields, field
 import argparse
 from typing import Optional
 import os
+import sys
 from pathlib import Path
+import torch
 
 __all__ = [
     'setup_logging',
@@ -18,6 +21,10 @@ __all__ = [
     'BaseArguments',
     'parse_cmd_line_args',
 ]
+
+def get_default_working_dir() -> Path:
+    """Get the default working directory based on the current script name."""
+    return Path('/tmp/') / os.getenv('USER', 'unknown_user') / Path(sys.argv[0]).stem
 
 
 @dataclass
@@ -33,14 +40,22 @@ class BaseArguments:
     IMPORTANT: All subclasses must also be declared as dataclasses for their fields to be
     recognized by parse_cmd_line_args().
     """
+    @staticmethod
+    def _meta(help: Optional[str] = None, required: bool = False):
+        """Helper method to define metadata for dataclass fields."""
+        if help is None:
+            help_str = ''
+        else:
+            help_str = help + ' '
+        return {
+            'help': help_str + '(default: %(default)s)',
+            'required': required,
+        }
+
     loglevel: str = field(default='INFO',
-                          metadata={
-                              'help': 'Logging level for stdout logs (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL) (default: %(default)s)'
-                          })
-    logdir: Path = field(default=Path('/tmp/') / os.getenv('USER', 'unknown_user'),
-                         metadata={
-                              'help': 'Directory where log files will be stored. (default: %(default)s).'
-                         })
+                          metadata=_meta(help='Logging level for stdout logs (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)'))
+    logdir: Path = field(default=get_default_working_dir() / 'logs',
+                         metadata=_meta(help='Directory where log files will be stored.'))
 
 
 def parse_cmd_line_args[T: BaseArguments](arg_template: T, description: Optional[str], argv: Optional[list[str]]) -> T:
@@ -73,6 +88,7 @@ def setup_logging(args: BaseArguments) -> structlog.BoundLogger:
     # Ensure logdir exists
     logdir = args.logdir
     logdir.mkdir(parents=True, exist_ok=True)
+    structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, args.loglevel.upper(), 'INFO')))
     return structlog.get_logger(__name__)
 
 
@@ -91,16 +107,26 @@ def fetch_api_keys() -> dict[str, str]:
     return {'huggingface': api_key} if api_key is not None else {}
 
 
-class App:
+class App[T: BaseArguments]:
     """Base class for applications.
 
     This class provides a common interface for applications, including methods for running the application
     and setting up logging.
     """
-    def __init__(self, arg_template: BaseArguments, description: Optional[str], argv: Optional[list[str]] = None):
+    def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
         self.args = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
         self.logger = setup_logging(self.args)
 
     def run(self):
         """Run the application."""
+        # TODO(heather): Wrap this in a decorator that catches exceptions and logs them.
         raise NotImplementedError("Subclasses must implement this method.")
+
+
+def save_tensor(tensor: torch.Tensor, path: Path):
+    """Save a tensor to both pt and txt files."""
+    # TODO(heather): Add tests for this function.
+    # TODO(heather): Move to safetenors representation.
+    torch.save(tensor, path.with_suffix('.pt'))
+    with open(path.with_suffix('.txt'), 'w') as f:
+        f.write(str(tensor.tolist()))

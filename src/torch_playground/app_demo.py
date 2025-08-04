@@ -26,7 +26,7 @@ class DemoApp(App):
 
     def run(self):
         """Run the demo application."""
-        self.logger.info('DemoApp is running.')
+        self.logger.info(f'Demo is running.')
         # Here you can add more functionality or logic for your demo app.
         self.logger.debug('This is a debug message.')
         self.logger.warning('This is a warning message.')

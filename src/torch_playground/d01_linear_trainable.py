@@ -1,15 +1,14 @@
 """Simplest possible torch demo: linear projection with integer values."""
 
-from torch_playground.util import setup_logging
+from torch_playground.util import BaseArguments, App, save_tensor, get_default_working_dir
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset
 from torchinfo import summary
-import argparse
 from typing import Optional
 from pathlib import Path
-from logging import Logger
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
+import json
 
 
 class HRLinear(nn.Module):
@@ -40,73 +39,67 @@ class HRLinear(nn.Module):
         return x @ self.W + self.b
 
 
-def create_data(input_dim: int, n: int) -> TensorDataset:
-    """Create a dataset of random integer inputs.
-
-    Data points are rows.
-
-    Args:
-        input_dim (int): The dimension of the input features.
-        n (int): The number of samples to generate.
-
-    Returns:
-        TensorDataset: A dataset containing random integer inputs.
-    """
-    assert input_dim > 0, 'Input dimension must be positive.'
-    assert n > 0, 'Number of samples must be positive.'
-    x = torch.randint(-10, 10, (n, input_dim), dtype=torch.int32)
-    return TensorDataset(x)
-
-
 @dataclass
-class Arguments:
-    """Command line arguments for the demo."""
-    input_dim: int = 3
-    output_dim: int = 3
-    n_samples: int = 10
-    output_dir: str = '/tmp/heather'  # TODO: better default
+class LinearTrainableArguments(BaseArguments):
+    """Command line arguments for the linear trainable application."""
+    dim: int = field(default=10, metadata=BaseArguments._meta(help='The dimension of the input features.'))
+    num_train_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of training samples to generate.'))
+    num_epochs: int = field(default=10, metadata=BaseArguments._meta(help='Number of epochs to train the model.'))
+    learning_rate: float = field(default=0.01, metadata=BaseArguments._meta(help='Learning rate for the optimizer.'))
+    output_dir: Path = field(default=get_default_working_dir(),
+                             metadata=BaseArguments._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
+
+class LinearTrainableApp(App[LinearTrainableArguments]):
+    """An application that trains a simple linear model."""
+
+    def __init__(self, argv: Optional[list[str]] = None):
+        super().__init__(LinearTrainableArguments(),
+                         'Train a simple linear model to fit a separable problem in low-dimensional space.',
+                         argv=argv)
+        self.dtype = torch.float32
+
+    def create_data(self) -> tuple[TensorDataset, torch.Tensor]:
+        """Create a dataset of a d-dimensional discriminator, random inputs, and classified outputs.
+
+        Data points are rows.
+
+        Returns:
+            TensorDataset: A dataset containing random integer inputs.
+        """
+        assert self.args.dim > 0, 'X dimension must be positive.'
+        assert self.args.num_train_samples > 0, 'Number of samples must be positive.'
+        self.logger.info('Creating data set', dim=self.args.dim, num_train_samples=self.args.num_train_samples)
+        # A zero-mean, unit-variance, normally distributed data set.
+        X = torch.randn(size=(self.args.num_train_samples, self.args.dim), dtype=self.dtype)
+        self.logger.debug('X[0:3]', sample=X[:3])
+        discriminator = torch.randn(size=(self.args.dim,), dtype=self.dtype)
+        self.logger.debug('Discriminator', sample=discriminator)
+        # Classify the data points based on the discriminator.
+        y = ((X @ discriminator > 0) * 2 - 1).long()
+        self.logger.debug('y[0:5]', sample=y[:5])
+        self.logger.info('Data set created',
+                         num_samples=X.shape[0],
+                         dim=X.shape[1],
+                         num_positive_samples=(y > 0).sum().item(),
+                         num_negative_samples=(y < 0).sum().item())
+        return TensorDataset(X, y), discriminator
 
 
-def parse_args() -> Arguments:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description='Linear projection demo with PyTorch.')
-    parser.add_argument('--input_dim', type=int, default=3, help='Input dimension size.')
-    parser.add_argument('--output_dim', type=int, default=3, help='Output dimension size.')
-    parser.add_argument('--n_samples', type=int, default=10, help='Number of samples to generate.')
-    parser.add_argument('--output_dir', type=str, default='/tmp/heather', help='Directory to save output files.')  # TODO: better default
-    return parser.parse_args(namespace=Arguments())
-
-
-def save_tensor(tensor: torch.Tensor, path: Path):
-    """Save a tensor to a file."""
-    torch.save(tensor, path.with_suffix('.pt'))
-    with open(path.with_suffix('.txt'), 'w') as f:
-        f.write(str(tensor.tolist()))
-
-
-def main(logger: Logger, args: Arguments):
-    output_dir = Path(args.output_dir) / 'd00_linear_projection'
-    output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f'Output directory: {output_dir}')
-    model = HRLinear(input_dim=args.input_dim, output_dim=args.output_dim)
-    logger.debug(f'Model = {model}')
-    summary(model)
-    torch.save(model.state_dict(), output_dir / 'model.pth')
-    with open(output_dir / 'model.txt', 'w') as f:
-        f.write(str(model))
-    logger.debug(f'Model parameters: W={model.W}, b={model.b}')
-    x = create_data(args.input_dim, args.n_samples)
-    save_tensor(x.tensors[0], output_dir / 'x.txt')
-    y = model(x.tensors[0])
-    save_tensor(y, output_dir / 'y.txt')
-    for i in range(args.n_samples):
-        logger.debug(f'{i}: {x[i]} -> {i}: {y[i]}')
+    def run(self):
+        # TODO(heather): This is common boilerplate, should be moved to App.
+        try:
+            self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.args))
+            self.args.output_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.args.output_dir / 'args.txt', 'w') as f:
+                json.dump(asdict(self.args), f, indent=2, default=str)
+            data, discriminator = self.create_data()
+            save_tensor(discriminator, self.args.output_dir / 'discriminator')
+            save_tensor(data.tensors[0], self.args.output_dir / 'X')
+            save_tensor(data.tensors[1], self.args.output_dir / 'y')
+        except Exception as e:
+            self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)
+            raise
 
 
 if __name__ == '__main__':
-    logger = setup_logging()
-    logger.info('Starting linear projection demo.')
-    args = parse_args()
-    logger.debug(f'Arguments: {args}')
-    main(logger=logger, args=args)
-    logger.info('Demo done.')
+    LinearTrainableApp().run()
