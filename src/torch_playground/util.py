@@ -56,6 +56,8 @@ class BaseArguments:
                           metadata=_meta(help='Logging level for stdout logs (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)'))
     logdir: Path = field(default=get_default_working_dir() / 'logs',
                          metadata=_meta(help='Directory where log files will be stored.'))
+    randseed: int = field(default=9_192_631_770,  # Frequency of ground state hyperfine transition of cesium-133 in Hz.
+                          metadata=_meta(help='Random seed for reproducibility.'))
 
 
 def parse_cmd_line_args[T: BaseArguments](arg_template: T, description: Optional[str], argv: Optional[list[str]]) -> T:

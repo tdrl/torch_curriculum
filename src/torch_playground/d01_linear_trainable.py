@@ -3,6 +3,7 @@
 from torch_playground.util import BaseArguments, App, save_tensor, get_default_working_dir
 import torch
 import torch.nn as nn
+import torch.cuda
 from torch.utils.data import TensorDataset
 from torchinfo import summary
 from typing import Optional
@@ -22,10 +23,14 @@ class HRLinearTrainable(nn.Module):
         assert input_dim > 0, 'Input dimension must be positive.'
         self.input_dim = input_dim
         if W is None:
-            self.W = torch.randn((input_dim,), dtype=dtype, requires_grad=True)
+            w_tmp = torch.randn((input_dim,), dtype=dtype, requires_grad=True)
         else:
             assert W.shape == (input_dim,), 'Weight tensor shape mismatch.'
-            self.W = W
+            w_tmp = W
+        self.W = nn.Parameter(w_tmp, requires_grad=True)
+
+    def __repr__(self):
+        return f'HRLinearTrainable(input_dim={self.input_dim}, W.shape={self.W.shape})'
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the linear layer."""
@@ -50,6 +55,10 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
                          'Train a simple linear model to fit a separable problem in low-dimensional space.',
                          argv=argv)
         self.dtype = torch.float32
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.logger.debug('Assigned device', device=self.device)
+        torch.manual_seed(self.args.randseed)
+        self.logger.debug('Set random seed', randseed=self.args.randseed)
 
     def create_data(self) -> tuple[TensorDataset, torch.Tensor]:
         """Create a dataset of a d-dimensional discriminator, random inputs, and classified outputs.
@@ -89,8 +98,11 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
             save_tensor(discriminator, self.args.output_dir / 'discriminator')
             save_tensor(data.tensors[0], self.args.output_dir / 'X')
             save_tensor(data.tensors[1], self.args.output_dir / 'y')
-            self.model = HRLinearTrainable(input_dim=self.args.dim, dtype=self.dtype)
-            self.logger.info('Model summary', model=summary(self.model, input_size=(self.args.num_train_samples, self.args.dim)))
+            self.model = HRLinearTrainable(input_dim=self.args.dim, dtype=self.dtype).to(self.device)
+            self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
+            self.logger.info('Model summary', model=summary(self.model, input_size=(self.args.num_train_samples, self.args.dim), verbose=0))
+            for name, param in self.model.named_parameters():
+                self.logger.debug('Parameter', name=name, shape=param.shape, requires_grad=param.requires_grad)
         except Exception as e:
             self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)
             raise
