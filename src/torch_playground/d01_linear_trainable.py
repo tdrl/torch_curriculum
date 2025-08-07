@@ -4,7 +4,7 @@ from torch_playground.util import BaseArguments, App, save_tensor, get_default_w
 import torch
 import torch.nn as nn
 import torch.cuda
-from torch.utils.data import TensorDataset
+from torch.utils.data import TensorDataset, DataLoader
 from torchinfo import summary
 from typing import Optional
 from pathlib import Path
@@ -34,7 +34,7 @@ class HRLinearTrainable(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the linear layer."""
-        return ((x @ self.W) > 0) * 2 - 1  # Returns -1 or 1 based on the sign of the linear combination.
+        return ((x @ self.W) > 0.) * 2. - 1.  # Returns -1 or 1 based on the sign of the linear combination.
 
 
 @dataclass
@@ -43,6 +43,7 @@ class LinearTrainableArguments(BaseArguments):
     dim: int = field(default=10, metadata=BaseArguments._meta(help='The dimension of the input features.'))
     num_train_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of training samples to generate.'))
     num_epochs: int = field(default=10, metadata=BaseArguments._meta(help='Number of epochs to train the model.'))
+    batch_size: int = field(default=8, metadata=BaseArguments._meta(help='Batch size for training.'))
     learning_rate: float = field(default=0.01, metadata=BaseArguments._meta(help='Learning rate for the optimizer.'))
     output_dir: Path = field(default=get_default_working_dir(),
                              metadata=BaseArguments._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
@@ -55,10 +56,12 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
                          'Train a simple linear model to fit a separable problem in low-dimensional space.',
                          argv=argv)
         self.dtype = torch.float32
+        torch.set_default_dtype(self.dtype)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.logger.debug('Assigned device', device=self.device)
-        torch.manual_seed(self.args.randseed)
-        self.logger.debug('Set random seed', randseed=self.args.randseed)
+        torch.manual_seed(self.config.randseed)
+        self.logger.debug('Set random seed', randseed=self.config.randseed)
+        self.model: Optional[HRLinearTrainable] = None
 
     def create_data(self) -> tuple[TensorDataset, torch.Tensor]:
         """Create a dataset of a d-dimensional discriminator, random inputs, and classified outputs.
@@ -68,16 +71,16 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
         Returns:
             TensorDataset: A dataset containing random integer inputs.
         """
-        assert self.args.dim > 0, 'X dimension must be positive.'
-        assert self.args.num_train_samples > 0, 'Number of samples must be positive.'
-        self.logger.info('Creating data set', dim=self.args.dim, num_train_samples=self.args.num_train_samples)
+        assert self.config.dim > 0, 'X dimension must be positive.'
+        assert self.config.num_train_samples > 0, 'Number of samples must be positive.'
+        self.logger.info('Creating data set', dim=self.config.dim, num_train_samples=self.config.num_train_samples)
         # A zero-mean, unit-variance, normally distributed data set.
-        X = torch.randn(size=(self.args.num_train_samples, self.args.dim), dtype=self.dtype)
+        X = torch.randn(size=(self.config.num_train_samples, self.config.dim), dtype=self.dtype).to(self.device)
         self.logger.debug('X[0:3]', sample=X[:3])
-        discriminator = torch.randn(size=(self.args.dim,), dtype=self.dtype)
+        discriminator = torch.randn(size=(self.config.dim,), dtype=self.dtype)
         self.logger.debug('Discriminator', sample=discriminator)
         # Classify the data points based on the discriminator.
-        y = ((X @ discriminator > 0) * 2 - 1).long()
+        y = ((X @ discriminator > 0) * 2 - 1).to(self.dtype).to(self.device)  # Convert to -1 or 1; force a floating-point type.
         self.logger.debug('y[0:5]', sample=y[:5])
         self.logger.info('Data set created',
                          num_samples=X.shape[0],
@@ -86,23 +89,46 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
                          num_negative_samples=(y < 0).sum().item())
         return TensorDataset(X, y), discriminator
 
+    def train_model(self, data: TensorDataset):
+        """Train the linear model on the provided dataset."""
+        assert self.model is not None, 'Model must be initialized before training.'
+        self.logger.info('Starting model training', num_epochs=self.config.num_epochs)
+        optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
+        loss = nn.MSELoss(reduction='mean')
+        self.logger.debug('Optimizer', optimizer=optimizer)
+        self.logger.debug('Loss function', loss_function=loss)
+        loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
+        self.model.train()  # Set the model to training mode
+        for epoch in range(self.config.num_epochs):
+            epoch_logger = self.logger.bind(epoch=epoch)
+            for batch, (X, y) in enumerate(loader):
+                optimizer.zero_grad()  # Clear gradients
+                predicted = self.model(X)
+                train_loss = loss(predicted, y)
+                # epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
+                train_loss.backward()
+                optimizer.step()
+            epoch_logger.info('Epoch done', loss=train_loss.item())
+        self.logger.info('Model training completed')
 
     def run(self):
         # TODO(heather): This is common boilerplate, should be moved to App.
         try:
-            self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.args))
-            self.args.output_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.args.output_dir / 'args.txt', 'w') as f:
-                json.dump(asdict(self.args), f, indent=2, default=str)
+            self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.config))
+            self.config.output_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.config.output_dir / 'args.txt', 'w') as f:
+                json.dump(asdict(self.config), f, indent=2, default=str)
             data, discriminator = self.create_data()
-            save_tensor(discriminator, self.args.output_dir / 'discriminator')
-            save_tensor(data.tensors[0], self.args.output_dir / 'X')
-            save_tensor(data.tensors[1], self.args.output_dir / 'y')
-            self.model = HRLinearTrainable(input_dim=self.args.dim, dtype=self.dtype).to(self.device)
+            save_tensor(discriminator, self.config.output_dir / 'discriminator')
+            save_tensor(data.tensors[0], self.config.output_dir / 'X')
+            save_tensor(data.tensors[1], self.config.output_dir / 'y')
+            self.model = HRLinearTrainable(input_dim=self.config.dim, dtype=self.dtype).to(self.device)
             self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
-            self.logger.info('Model summary', model=summary(self.model, input_size=(self.args.num_train_samples, self.args.dim), verbose=0))
-            for name, param in self.model.named_parameters():
-                self.logger.debug('Parameter', name=name, shape=param.shape, requires_grad=param.requires_grad)
+            self.logger.info('Model summary', model=summary(self.model, input_size=(self.config.num_train_samples, self.config.dim), verbose=0))
+            self.train_model(data)
+            save_tensor(self.model.W, self.config.output_dir / 'W_trained')
+            self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'W_trained.pt')
+            self.logger.info('||target - model.W||', norm=torch.linalg.vector_norm(discriminator - self.model.W).item())
         except Exception as e:
             self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)
             raise

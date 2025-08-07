@@ -22,7 +22,7 @@ class DemoApp(App):
     def __init__(self):
         """Initialize the demo application with command line arguments."""
         super().__init__(self.DemoArguments(), description='Demo Application for Torch Playground',)
-        self.logger.info('DemoApp initialized with arguments', **asdict(self.args))
+        self.logger.info('DemoApp initialized with arguments', **asdict(self.config))
 
     def run(self):
         """Run the demo application."""

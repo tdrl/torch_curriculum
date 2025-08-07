@@ -10,8 +10,8 @@ class TestLinearTrainableApp:
     def test_generate_data(self, dim: int, num_samples: int):
         """Test that data generation works and produces the expected shapes."""
         app = LinearTrainableApp(argv=[])
-        app.args.dim = dim
-        app.args.num_train_samples = num_samples
+        app.config.dim = dim
+        app.config.num_train_samples = num_samples
         data, discriminator = app.create_data()
         X, y = data.tensors
         assert X.shape == (num_samples, dim), f'Expected X shape ({num_samples}, {dim}), got {X.shape}'

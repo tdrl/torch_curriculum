@@ -116,8 +116,8 @@ class App[T: BaseArguments]:
     and setting up logging.
     """
     def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
-        self.args = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
-        self.logger = setup_logging(self.args)
+        self.config = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
+        self.logger = setup_logging(self.config)
 
     def run(self):
         """Run the application."""
