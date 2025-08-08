@@ -32,6 +32,10 @@ class DemoApp(App):
         self.logger.warning('This is a warning message.')
         self.logger.error('This is an error message.')
         self.logger.critical('This is a critical message.')
+        self.logger.info('An info message with some structured data', key1='value1', key2=2)
+        self.logger.info('Info message with dict structured data', **{'a': 1, 'b': 2})
+        local_logger = self.logger.bind(local_key='local_value')
+        local_logger.info('This is a message from the local logger.')
         try:
             x = 3
             y = 'Goodbye, cruel world!'

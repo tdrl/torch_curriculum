@@ -6,6 +6,7 @@ from structlog.processors import TimeStamper, StackInfoRenderer, UnicodeDecoder
 from structlog.dev import ConsoleRenderer, RichTracebackFormatter, RED, GREEN, BLUE, MAGENTA, YELLOW, CYAN, RED_BACK, BRIGHT
 from structlog.stdlib import add_log_level, PositionalArgumentsFormatter
 import logging
+import logging.config
 
 from dataclasses import dataclass, fields, field
 import argparse
@@ -93,7 +94,58 @@ def setup_logging(args: BaseArguments) -> structlog.BoundLogger:
     # Ensure logdir exists
     logdir = args.logdir
     logdir.mkdir(parents=True, exist_ok=True)
-    structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, args.loglevel.upper(), 'INFO')))
+    structlog.configure(
+        processors=[
+            structlog.processors.TimeStamper(fmt='iso'),
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.StackInfoRenderer(),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+    logging.config.dictConfig({
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'console_colored': {
+                '()': structlog.stdlib.ProcessorFormatter,
+                'processor': structlog.dev.ConsoleRenderer(colors=True),
+            },
+            'json': {
+                '()': structlog.stdlib.ProcessorFormatter,
+                'processor': structlog.processors.JSONRenderer(),
+            },
+        },
+        'handlers': {
+            'console': {
+                'level': 'DEBUG',
+                'class': 'logging.StreamHandler',
+                'formatter': 'console_colored',
+            },
+            'file_debug': {
+                'level': 'DEBUG',
+                'class': 'logging.handlers.WatchedFileHandler',
+                'filename': str(logdir / 'debug.json.log'),
+                'formatter': 'json',
+            },
+            'file_error': {
+                'level': 'ERROR',
+                'class': 'logging.handlers.WatchedFileHandler',
+                'filename': str(logdir / 'error.json.log'),
+                'formatter': 'json',
+            }
+        },
+        'loggers': {
+            '': {
+                'handlers': ['console', 'file_debug', 'file_error'],
+                'level': 'DEBUG',
+                'propagate': True,
+            },
+        },
+    })
     return structlog.get_logger(__name__)
 
 
