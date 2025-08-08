@@ -75,7 +75,8 @@ def parse_cmd_line_args[T: BaseArguments](arg_template: T, description: Optional
     return args
 
 
-def setup_logging(args: BaseArguments) -> structlog.BoundLogger:
+def setup_logging(loglevel: str = 'INFO',
+                  logdir: Path = get_default_working_dir() / 'logs') -> structlog.BoundLogger:
     """Set up logging configuration.
 
     Sets a local logger and configures the logging format.
@@ -92,7 +93,6 @@ def setup_logging(args: BaseArguments) -> structlog.BoundLogger:
     # Suppress asyncio 'KqueueSelector' messages.
     logging.getLogger('asyncio').setLevel(logging.WARNING)
     # Ensure logdir exists
-    logdir = args.logdir
     logdir.mkdir(parents=True, exist_ok=True)
     structlog.configure(
         processors=[
@@ -121,7 +121,7 @@ def setup_logging(args: BaseArguments) -> structlog.BoundLogger:
         },
         'handlers': {
             'console': {
-                'level': 'DEBUG',
+                'level': loglevel,
                 'class': 'logging.StreamHandler',
                 'formatter': 'console_colored',
             },
@@ -172,7 +172,7 @@ class App[T: BaseArguments]:
     """
     def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
         self.config = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
-        self.logger = setup_logging(self.config)
+        self.logger = setup_logging(self.config.loglevel, self.config.logdir)
 
     def run(self):
         """Run the application."""
