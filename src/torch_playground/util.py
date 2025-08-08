@@ -14,6 +14,7 @@ import os
 import sys
 from pathlib import Path
 import torch
+import pprint
 
 __all__ = [
     'setup_logging',
@@ -131,4 +132,4 @@ def save_tensor(tensor: torch.Tensor, path: Path):
     # TODO(heather): Move to safetenors representation.
     torch.save(tensor, path.with_suffix('.pt'))
     with open(path.with_suffix('.txt'), 'w') as f:
-        f.write(str(tensor.tolist()))
+        f.write(pprint.pformat(tensor.tolist(), indent=2, width=80))

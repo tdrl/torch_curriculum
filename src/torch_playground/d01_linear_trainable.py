@@ -34,7 +34,8 @@ class HRLinearTrainable(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the linear layer."""
-        return ((x @ self.W) > 0.) * 2. - 1.  # Returns -1 or 1 based on the sign of the linear combination.
+        # return ((x @ self.W) > 0.) * 2. - 1.  # Returns -1 or 1 based on the sign of the linear combination.
+        return torch.logit(x @ self.W, eps=1e-5)
 
 
 @dataclass
@@ -80,7 +81,7 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
         discriminator = torch.randn(size=(self.config.dim,), dtype=self.dtype)
         self.logger.debug('Discriminator', sample=discriminator)
         # Classify the data points based on the discriminator.
-        y = ((X @ discriminator > 0) * 2 - 1).to(self.dtype).to(self.device)  # Convert to -1 or 1; force a floating-point type.
+        y = ((X @ discriminator > 0.) * 2. - 1.).to(self.device)  # Convert to -1 or 1; force a floating-point type.
         self.logger.debug('y[0:5]', sample=y[:5])
         self.logger.info('Data set created',
                          num_samples=X.shape[0],
@@ -105,11 +106,29 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
                 optimizer.zero_grad()  # Clear gradients
                 predicted = self.model(X)
                 train_loss = loss(predicted, y)
-                # epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
+                if batch % 100 == 0:
+                    epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
                 train_loss.backward()
                 optimizer.step()
             epoch_logger.info('Epoch done', loss=train_loss.item())
         self.logger.info('Model training completed')
+
+    def classify_data(self, data: TensorDataset) -> torch.Tensor:
+        """Classify the data using the trained model.
+
+        Args:
+            data (TensorDataset): The dataset containing input features.
+
+        Returns:
+            torch.Tensor: The model's predictions for the input data.
+        """
+        assert self.model is not None, 'Model must be initialized before classification.'
+        self.logger.info('Classifying data with the trained model')
+        self.model.eval()  # Set the model to evaluation mode
+        with torch.no_grad():
+            X = data.tensors[0].to(self.device)  # Move input data to the appropriate device
+            predictions = self.model(X)
+        return predictions
 
     def run(self):
         # TODO(heather): This is common boilerplate, should be moved to App.
@@ -129,6 +148,11 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
             save_tensor(self.model.W, self.config.output_dir / 'W_trained')
             self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'W_trained.pt')
             self.logger.info('||target - model.W||', norm=torch.linalg.vector_norm(discriminator - self.model.W).item())
+            predictions = self.classify_data(data)
+            predictions = torch.stack((predictions, data.tensors[1]), dim=1)  # Stack predictions with true labels for output.
+            save_tensor(predictions, self.config.output_dir / 'predictions_truth')
+            self.logger.info('Predictions saved', predictions_path=self.config.output_dir / 'predictions_truth.pt')
+            self.logger.info('Application run completed successfully')
         except Exception as e:
             self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)
             raise
