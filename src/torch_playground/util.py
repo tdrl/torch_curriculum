@@ -88,6 +88,8 @@ def setup_logging(args: BaseArguments) -> structlog.BoundLogger:
     Returns:
         structlog.BoundLogger: A logger instance configured with the specified settings.
     """
+    # Suppress asyncio 'KqueueSelector' messages.
+    logging.getLogger('asyncio').setLevel(logging.WARNING)
     # Ensure logdir exists
     logdir = args.logdir
     logdir.mkdir(parents=True, exist_ok=True)
