@@ -173,6 +173,13 @@ class App[T: BaseArguments]:
     def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
         self.config = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
         self.logger = setup_logging(self.config.loglevel, self.config.logdir)
+        self.dtype = torch.float32
+        torch.set_default_dtype(self.dtype)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.logger.debug('Assigned device', device=self.device)
+        torch.manual_seed(self.config.randseed)
+        self.logger.debug('Set random seed', randseed=self.config.randseed)
+
 
     def run(self):
         """Run the application."""

@@ -3,13 +3,13 @@
 from torch_playground.util import BaseArguments, App, save_tensor, get_default_working_dir
 import torch
 import torch.nn as nn
-import torch.cuda
 from torch.utils.data import TensorDataset, DataLoader
 from torchinfo import summary
 from typing import Optional
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 import json
+import tqdm
 
 
 class HRLinearTrainable(nn.Module):
@@ -35,7 +35,7 @@ class HRLinearTrainable(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the linear layer."""
         # return ((x @ self.W) > 0.) * 2. - 1.  # Returns -1 or 1 based on the sign of the linear combination.
-        return torch.logit(x @ self.W, eps=1e-5)
+        return torch.sign(x @ self.W)
 
 
 @dataclass
@@ -56,12 +56,6 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
         super().__init__(LinearTrainableArguments(),
                          'Train a simple linear model to fit a separable problem in low-dimensional space.',
                          argv=argv)
-        self.dtype = torch.float32
-        torch.set_default_dtype(self.dtype)
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.logger.debug('Assigned device', device=self.device)
-        torch.manual_seed(self.config.randseed)
-        self.logger.debug('Set random seed', randseed=self.config.randseed)
         self.model: Optional[HRLinearTrainable] = None
 
     def create_data(self) -> tuple[TensorDataset, torch.Tensor]:
@@ -81,7 +75,8 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
         discriminator = torch.randn(size=(self.config.dim,), dtype=self.dtype)
         self.logger.debug('Discriminator', sample=discriminator)
         # Classify the data points based on the discriminator.
-        y = ((X @ discriminator > 0.) * 2. - 1.).to(self.device)  # Convert to -1 or 1; force a floating-point type.
+        # y = ((X @ discriminator > 0.) * 2. - 1.).to(self.device)  # Convert to -1 or 1; force a floating-point type.
+        y = torch.sign(X @ discriminator).to(self.device)
         self.logger.debug('y[0:5]', sample=y[:5])
         self.logger.info('Data set created',
                          num_samples=X.shape[0],
@@ -100,9 +95,9 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
         self.logger.debug('Loss function', loss_function=loss)
         loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
         self.model.train()  # Set the model to training mode
-        for epoch in range(self.config.num_epochs):
+        for epoch in tqdm.tqdm(range(self.config.num_epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
-            for batch, (X, y) in enumerate(loader):
+            for batch, (X, y) in tqdm.tqdm(enumerate(loader), desc='Batch', leave=False):
                 optimizer.zero_grad()  # Clear gradients
                 predicted = self.model(X)
                 train_loss = loss(predicted, y)
@@ -110,7 +105,6 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
                     epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
                 train_loss.backward()
                 optimizer.step()
-            epoch_logger.info('Epoch done', loss=train_loss.item())
         self.logger.info('Model training completed')
 
     def classify_data(self, data: TensorDataset) -> torch.Tensor:
