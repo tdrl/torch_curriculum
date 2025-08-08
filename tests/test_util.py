@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 import pytest
 
@@ -8,16 +8,15 @@ class TestUtil:
 
     def test_parse_cmd_line_args_base(self):
         """Test parsing command line arguments with no arguments."""
+        frozen_args = BaseArguments()  # Ensure we're not inspecting the same underlying object.
         args = parse_cmd_line_args(BaseArguments(), description=None, argv=[])
         assert isinstance(args, BaseArguments)
-        # BaseArguments provides shared logging fields.
-        assert len(vars(args)) == 3, 'Expected two arguments to be parsed.'
-        assert hasattr(args, 'loglevel')
-        assert args.loglevel == 'INFO', 'Default log level should be INFO.'
-        assert hasattr(args, 'logdir')
-        assert args.logdir == BaseArguments.logdir, 'Default log directory should match the expected path.'
-        assert hasattr(args, 'randseed')
-        assert args.randseed == BaseArguments.randseed, 'Default random seed should match the expected value.'
+        expected_fields = fields(frozen_args)
+        assert len(vars(args)) == len(expected_fields), f'Expected {len(expected_fields)} arguments to be parsed.'
+        # Check default values for BaseArguments.
+        for field in expected_fields:
+            assert hasattr(args, field.name), f'Parsed arguments should have field {field}.'
+            assert getattr(args, field.name) == field.default, f'Field {field.name} should have default value {field.default}.'
 
     def test_parse_cmd_line_args_base_can_override_shared_args(self):
         args = parse_cmd_line_args(BaseArguments(), description=None, argv=['--loglevel', 'DEBUG', '--logdir', '/tmp/logs'])

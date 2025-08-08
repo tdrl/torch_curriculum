@@ -7,7 +7,6 @@ from structlog.dev import ConsoleRenderer, RichTracebackFormatter, RED, GREEN, B
 from structlog.stdlib import add_log_level, PositionalArgumentsFormatter
 import logging
 import logging.config
-
 from dataclasses import dataclass, fields, field
 import argparse
 from typing import Optional
@@ -15,7 +14,9 @@ import os
 import sys
 from pathlib import Path
 import torch
+from torch.utils.tensorboard.writer import SummaryWriter
 import pprint
+import datetime
 
 __all__ = [
     'setup_logging',
@@ -56,6 +57,8 @@ class BaseArguments:
 
     loglevel: str = field(default='INFO',
                           metadata=_meta(help='Logging level for stdout logs (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)'))
+    output_dir: Path = field(default=get_default_working_dir(),
+                             metadata=_meta(help='Directory to save the data, checkpoints, trained model, etc.'))
     logdir: Path = field(default=get_default_working_dir() / 'logs',
                          metadata=_meta(help='Directory where log files will be stored.'))
     randseed: int = field(default=9_192_631_770,  # Frequency of ground state hyperfine transition of cesium-133 in Hz.
@@ -173,13 +176,15 @@ class App[T: BaseArguments]:
     def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
         self.config = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
         self.logger = setup_logging(self.config.loglevel, self.config.logdir)
+        self.config.output_dir.mkdir(parents=True, exist_ok=True)
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.logger.debug('Assigned device', device=self.device)
         torch.manual_seed(self.config.randseed)
         self.logger.debug('Set random seed', randseed=self.config.randseed)
-
+        self.run_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+        self.tb_writer = SummaryWriter(log_dir=self.config.output_dir / 'tensorboard' / self.run_timestamp)
 
     def run(self):
         """Run the application."""

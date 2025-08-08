@@ -95,14 +95,20 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
         self.logger.debug('Loss function', loss_function=loss)
         loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
         self.model.train()  # Set the model to training mode
+        running_loss = 0.0
         for epoch in tqdm.tqdm(range(self.config.num_epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
             for batch, (X, y) in tqdm.tqdm(enumerate(loader), desc='Batch', leave=False):
                 optimizer.zero_grad()  # Clear gradients
                 predicted = self.model(X)
                 train_loss = loss(predicted, y)
+                running_loss += train_loss.item()
                 if batch % 100 == 0:
                     epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
+                    self.tb_writer.add_scalar('train loss',
+                                              running_loss / 100,
+                                              epoch * len(loader) + batch)
+                    running_loss = 0.0
                 train_loss.backward()
                 optimizer.step()
         self.logger.info('Model training completed')
@@ -138,6 +144,7 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
             self.model = HRLinearTrainable(input_dim=self.config.dim, dtype=self.dtype).to(self.device)
             self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
             self.logger.info('Model summary', model=summary(self.model, input_size=(self.config.num_train_samples, self.config.dim), verbose=0))
+            self.tb_writer.add_graph(self.model, data.tensors[0])
             self.train_model(data)
             save_tensor(self.model.W, self.config.output_dir / 'W_trained')
             self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'W_trained.pt')
