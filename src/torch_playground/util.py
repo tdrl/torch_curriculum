@@ -218,7 +218,7 @@ class App[T: BaseArguments, M: torch.nn.Module]:
             num_epochs (int): The number of epochs to train the model for.
         """
         assert self.model is not None, 'Model must be initialized before training.'
-        self.logger.info('Starting model training', num_epochs=self.config.num_epochs)
+        self.logger.info('Starting model training', num_epochs=num_epochs)
         self.logger.debug('Optimizer', optimizer=optimizer)
         self.logger.debug('Loss function', loss_function=loss_fn)
         self.model.train()  # Set the model to training mode
