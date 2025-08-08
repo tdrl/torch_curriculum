@@ -207,6 +207,8 @@ class App[T: BaseArguments, M: torch.nn.Module]:
 
         This is a generic training loop, appropriate for supervised model training.
 
+        Requires: self.model has already been initialized.
+
         Arguments:
             data (DataLoader): DataLoader providing the training data. Assumes that each
                 batch is a tuple (inputs, targets).
