@@ -49,7 +49,7 @@ class LinearTrainableArguments(BaseArguments):
     output_dir: Path = field(default=get_default_working_dir(),
                              metadata=BaseArguments._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
 
-class LinearTrainableApp(App[LinearTrainableArguments]):
+class LinearTrainableApp(App[LinearTrainableArguments, HRLinearTrainable]):
     """An application that trains a simple linear model."""
 
     def __init__(self, argv: Optional[list[str]] = None):
@@ -85,34 +85,6 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
                          num_negative_samples=(y < 0).sum().item())
         return TensorDataset(X, y), discriminator
 
-    def train_model(self, data: TensorDataset):
-        """Train the linear model on the provided dataset."""
-        assert self.model is not None, 'Model must be initialized before training.'
-        self.logger.info('Starting model training', num_epochs=self.config.num_epochs)
-        optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
-        loss = nn.MSELoss(reduction='mean')
-        self.logger.debug('Optimizer', optimizer=optimizer)
-        self.logger.debug('Loss function', loss_function=loss)
-        loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
-        self.model.train()  # Set the model to training mode
-        running_loss = 0.0
-        for epoch in tqdm.tqdm(range(self.config.num_epochs), desc='Epoch'):
-            epoch_logger = self.logger.bind(epoch=epoch)
-            for batch, (X, y) in tqdm.tqdm(enumerate(loader), desc='Batch', leave=False):
-                optimizer.zero_grad()  # Clear gradients
-                predicted = self.model(X)
-                train_loss = loss(predicted, y)
-                running_loss += train_loss.item()
-                if batch % 100 == 0:
-                    epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
-                    self.tb_writer.add_scalar('train loss',
-                                              running_loss / 100,
-                                              epoch * len(loader) + batch)
-                    running_loss = 0.0
-                train_loss.backward()
-                optimizer.step()
-        self.logger.info('Model training completed')
-
     def classify_data(self, data: TensorDataset) -> torch.Tensor:
         """Classify the data using the trained model.
 
@@ -145,7 +117,13 @@ class LinearTrainableApp(App[LinearTrainableArguments]):
             self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
             self.logger.info('Model summary', model=summary(self.model, input_size=(self.config.num_train_samples, self.config.dim), verbose=0))
             self.tb_writer.add_graph(self.model, data.tensors[0])
-            self.train_model(data)
+            optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
+            loss_fn = nn.MSELoss(reduction='mean')
+            data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
+            self.train_model(data=data_loader,
+                             optimizer=optimizer,
+                             loss_fn=loss_fn,
+                             num_epochs=self.config.num_epochs)
             save_tensor(self.model.W, self.config.output_dir / 'W_trained')
             self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'W_trained.pt')
             self.logger.info('||target - model.W||', norm=torch.linalg.vector_norm(discriminator - self.model.W).item())

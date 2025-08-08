@@ -14,9 +14,11 @@ import os
 import sys
 from pathlib import Path
 import torch
+from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard.writer import SummaryWriter
 import pprint
 import datetime
+import tqdm
 
 __all__ = [
     'setup_logging',
@@ -167,13 +169,18 @@ def fetch_api_keys() -> dict[str, str]:
     return {'huggingface': api_key} if api_key is not None else {}
 
 
-class App[T: BaseArguments]:
+class App[T: BaseArguments, M: torch.nn.Module]:
     """Base class for applications.
 
     This class provides a common interface for applications, including methods for running the application
     and setting up logging.
+
+    Type Parameters:
+        T: Type of the command line arguments, which must be a subclass of BaseArguments.
+        M: Type of the model, which must be a subclass of torch.nn.Module.
     """
     def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
+        self.model: Optional[M] = None
         self.config = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
         self.logger = setup_logging(self.config.loglevel, self.config.logdir)
         self.config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -190,6 +197,48 @@ class App[T: BaseArguments]:
         """Run the application."""
         # TODO(heather): Wrap this in a decorator that catches exceptions and logs them.
         raise NotImplementedError("Subclasses must implement this method.")
+
+    def train_model(self,
+                    data: DataLoader,
+                    optimizer: torch.optim.Optimizer,
+                    loss_fn: torch.nn.Module,
+                    num_epochs: int = 10) -> None:
+        """Train the model.
+
+        This is a generic training loop, appropriate for supervised model training.
+
+        Arguments:
+            data (DataLoader): DataLoader providing the training data. Assumes that each
+                batch is a tuple (inputs, targets).
+            optimizer (torch.optim.Optimizer): The optimizer to use for training. Must be
+                initialized with the model's parameters and pre-configured with learning
+                rate and other hyperparameters.
+            loss_fn (torch.nn.Module): The loss function to use for training. Must be
+                pre-configured (e.g., with reduction method).
+            num_epochs (int): The number of epochs to train the model for.
+        """
+        assert self.model is not None, 'Model must be initialized before training.'
+        self.logger.info('Starting model training', num_epochs=self.config.num_epochs)
+        self.logger.debug('Optimizer', optimizer=optimizer)
+        self.logger.debug('Loss function', loss_function=loss_fn)
+        self.model.train()  # Set the model to training mode
+        running_loss = 0.0
+        for epoch in tqdm.tqdm(range(num_epochs), desc='Epoch'):
+            epoch_logger = self.logger.bind(epoch=epoch)
+            for batch, (X, y) in tqdm.tqdm(enumerate(data), desc='Batch', leave=False):
+                optimizer.zero_grad()  # Clear gradients
+                predicted = self.model(X)
+                train_loss = loss_fn(predicted, y)
+                running_loss += train_loss.item()
+                if batch % 100 == 0:
+                    epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
+                    self.tb_writer.add_scalar('train loss',
+                                              running_loss / 100,
+                                              epoch * len(data) + batch)
+                    running_loss = 0.0
+                train_loss.backward()
+                optimizer.step()
+        self.logger.info('Model training completed')
 
 
 def save_tensor(tensor: torch.Tensor, path: Path):
