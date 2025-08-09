@@ -1,4 +1,4 @@
-"""Simplest possible torch demo: linear projection with integer values."""
+"""The most basic trainable model: single linear transform, no bias."""
 
 from torch_playground.util import BaseArguments, App, save_tensor, get_default_working_dir
 import torch
@@ -9,7 +9,6 @@ from typing import Optional
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 import json
-import tqdm
 
 
 class HRLinearTrainable(nn.Module):
@@ -34,7 +33,6 @@ class HRLinearTrainable(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the linear layer."""
-        # return ((x @ self.W) > 0.) * 2. - 1.  # Returns -1 or 1 based on the sign of the linear combination.
         return torch.sign(x @ self.W)
 
 
@@ -75,7 +73,6 @@ class LinearTrainableApp(App[LinearTrainableArguments, HRLinearTrainable]):
         discriminator = torch.randn(size=(self.config.dim,), dtype=self.dtype)
         self.logger.debug('Discriminator', sample=discriminator)
         # Classify the data points based on the discriminator.
-        # y = ((X @ discriminator > 0.) * 2. - 1.).to(self.device)  # Convert to -1 or 1; force a floating-point type.
         y = torch.sign(X @ discriminator).to(self.device)
         self.logger.debug('y[0:5]', sample=y[:5])
         self.logger.info('Data set created',
