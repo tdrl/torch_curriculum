@@ -15,7 +15,7 @@ from typing import Optional
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 import json
-from collections import OrderedDict
+import structlog
 
 
 class HRLinearMultilayer(nn.Module):
@@ -63,6 +63,7 @@ class DataGenerator:
             containing the Cholesky lower triangular factor matrix of the corresponsing
             covariance, for each row.
         """
+        logger = structlog.get_logger()
         self.dim = dim
         self.n_classes = n_classes
         S = torch.randn(size=(dim, dim), dtype=dtype)
@@ -70,12 +71,18 @@ class DataGenerator:
         L = torch.linalg.cholesky(S)
         pd_mat_generator = torch.distributions.Wishart(df=torch.as_tensor(dim),
                                                        scale_tril=L)
-        mean_generators = torch.distributions.Normal(loc=torch.zeros((dim, )), scale=torch.ones((dim, )))
+        mean_generators = torch.distributions.Normal(loc=torch.zeros((dim, )), scale=10 * torch.ones((dim, )))
+        # TODO(heather): Scale the mean norms more intelligently by inspecting the
+        # covariances (ideally: look at the max eigenvalue over all cov matrices).
         self.means = torch.stack([mean_generators.sample() for _ in range(n_classes)])
         self.covariances = torch.stack([pd_mat_generator.sample() + torch.eye(dim) * 1e-3 for _ in range(n_classes)])
         # Cache the Cholesky factors (intuitively, the "square roots") of the
         # covariance matrices. We'll need these in the generation steps.
         self._cov_factors_cache: torch.Tensor = torch.linalg.cholesky(self.covariances)
+        logger.debug('Data generator initialized',
+                     means_dim=self.means.shape,
+                     cov_dim=self.covariances.shape,
+                     mean_norms=torch.linalg.vector_norm(self.means, dim=1))
 
     def generate(self, n_points: int) -> TensorDataset:
         assert n_points > 0
@@ -148,13 +155,22 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
                 json.dump(asdict(self.config), f, indent=2, default=str)
             data_generator = DataGenerator(dim=self.config.dim, n_classes=self.config.n_classes, dtype=self.dtype)
             data = data_generator.generate(n_points=self.config.n_train_samples)
+            self.logger.debug('Synthesized data',
+                              n_points=len(data),
+                              dim=data.tensors[0].shape[1],
+                              n_classes=torch.unique(data.tensors[1]).shape[0])
             save_tensor(data_generator.covariances, self.config.output_dir / 'hyper_cov')
             save_tensor(data_generator.means, self.config.output_dir / 'hyper_means')
             save_tensor(data.tensors[0], self.config.output_dir / 'X')
             save_tensor(data.tensors[1], self.config.output_dir / 'y')
-            display_count = min(20 * self.config.n_classes, self.config.n_train_samples)
+            self.tb_writer.add_embedding(data_generator.means,
+                                         metadata=torch.range(0, self.config.n_classes - 1),
+                                         global_step=0,
+                                         tag='Cluster mean vectors')
+            display_count = min(30 * self.config.n_classes, self.config.n_train_samples)
+            self.logger.debug('Writing tensorboard embedding sample', count=display_count)
             self.tb_writer.add_embedding(data.tensors[0][:display_count],
-                                         data.tensors[1][:display_count],
+                                         metadata=data.tensors[1][:display_count],
                                          global_step=0,
                                          tag='Data class distribution')
             self.model = HRLinearMultilayer(input_dim=self.config.dim,
