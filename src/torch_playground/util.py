@@ -169,6 +169,11 @@ def fetch_api_keys() -> dict[str, str]:
     return {'huggingface': api_key} if api_key is not None else {}
 
 
+def accuracy(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """Simple accuracy for discrete predictions."""
+    assert x.shape == y.shape
+    return torch.sum(x == y, dim=0) / x.shape[0]
+
 class App[T: BaseArguments, M: torch.nn.Module]:
     """Base class for applications.
 
@@ -227,7 +232,7 @@ class App[T: BaseArguments, M: torch.nn.Module]:
         running_loss = 0.0
         for epoch in tqdm.tqdm(range(num_epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
-            for batch, (X, y) in tqdm.tqdm(enumerate(data), desc='Batch', leave=False):
+            for batch, (X, y) in tqdm.tqdm(enumerate(data), desc='Batch', leave=False, total=len(data)):
                 optimizer.zero_grad()  # Clear gradients
                 predicted = self.model(X)
                 train_loss = loss_fn(predicted, y)

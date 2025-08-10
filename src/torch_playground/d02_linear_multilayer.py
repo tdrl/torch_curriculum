@@ -1,6 +1,12 @@
 """A simple, multilayer feed forward model with categorical outputs."""
 
-from torch_playground.util import BaseArguments, App, save_tensor, get_default_working_dir
+from torch_playground.util import (
+    BaseArguments,
+    App,
+    save_tensor,
+    get_default_working_dir,
+    accuracy
+)
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
@@ -20,13 +26,13 @@ class HRLinearMultilayer(nn.Module):
 
     def __init__(self,
                  input_dim: int,
-                 n_categories: int = 5,
+                 n_classes: int = 5,
                  n_hidden_layers: int = 2,
                  dtype: torch.dtype = torch.float32):
         super().__init__()
         assert input_dim > 0, 'Input dimension must be positive.'
         # Not an optimal arrangement - just a simple one for demo purposes.
-        hidden_layer_widths = torch.round(torch.linspace(input_dim, n_categories, n_hidden_layers))
+        hidden_layer_widths = torch.round(torch.linspace(input_dim, n_classes, n_hidden_layers))
         layers = []
         last_layer_width = input_dim
         for w in hidden_layer_widths[1:]:
@@ -36,7 +42,7 @@ class HRLinearMultilayer(nn.Module):
             layers.append(torch.nn.ReLU())
             layers.append(torch.nn.BatchNorm1d(num_features=width, dtype=dtype))
         # Final layer: softmax for Pr[class]
-        layers.append(torch.nn.Softmax())
+        layers.append(torch.nn.Softmax(dim=0))
         self.layers = torch.nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -100,6 +106,7 @@ class MultilayerArguments(BaseArguments):
     n_classes: int = field(default=5, metadata=BaseArguments._meta(help='Number of output classes'))
     n_hidden_layers: int = field(default=3, metadata=BaseArguments._meta(help='Number of hidden layers'))
     n_train_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of training samples to generate.'))
+    n_val_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of holdout validation set samples to generate.'))
     epochs: int = field(default=10, metadata=BaseArguments._meta(help='Number of epochs to train the model.'))
     batch_size: int = field(default=8, metadata=BaseArguments._meta(help='Batch size for training.'))
     learning_rate: float = field(default=0.01, metadata=BaseArguments._meta(help='Learning rate for the optimizer.'))
@@ -115,37 +122,7 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
                          argv=argv)
         self.model: Optional[HRLinearMultilayer] = None
 
-    def create_data(self) -> tuple[TensorDataset, torch.Tensor]:
-        """Create a dataset of a d-dimensional discriminator, random inputs, and classified outputs.
-
-        Data points are rows.
-
-        Returns:
-            TensorDataset: A dataset containing random integer inputs.
-        """
-        assert self.config.dim > 0, 'X dimension must be positive.'
-        assert self.config.n_classes > 0, 'Number of output classes must be positive.'
-        assert self.config.n_train_samples > 0, 'Number of samples must be positive.'
-        self.logger.info('Creating data set',
-                         dim=self.config.dim,
-                         n_classes=self.config.n_classes,
-                         num_train_samples=self.config.n_train_samples)
-        # A zero-mean, unit-variance, normally distributed data set.
-        X = torch.randn(size=(self.config.n_train_samples, self.config.dim), dtype=self.dtype).to(self.device)
-        self.logger.debug('X[0:3]', sample=X[:3])
-        discriminator = torch.randn(size=(self.config.dim,), dtype=self.dtype)
-        self.logger.debug('Discriminator', sample=discriminator)
-        # Classify the data points based on the discriminator.
-        y = torch.sign(X @ discriminator).to(self.device)
-        self.logger.debug('y[0:5]', sample=y[:5])
-        self.logger.info('Data set created',
-                         num_samples=X.shape[0],
-                         dim=X.shape[1],
-                         num_positive_samples=(y > 0).sum().item(),
-                         num_negative_samples=(y < 0).sum().item())
-        return TensorDataset(X, y), discriminator
-
-    def classify_data(self, data: TensorDataset) -> torch.Tensor:
+    def hard_classify_data(self, data: TensorDataset) -> torch.Tensor:
         """Classify the data using the trained model.
 
         Args:
@@ -159,7 +136,7 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
         self.model.eval()  # Set the model to evaluation mode
         with torch.no_grad():
             X = data.tensors[0].to(self.device)  # Move input data to the appropriate device
-            predictions = self.model(X)
+            predictions = torch.argmax(self.model(X), dim=1)
         return predictions
 
     def run(self):
@@ -167,21 +144,29 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
         try:
             self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.config))
             self.config.output_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.config.output_dir / 'args.txt', 'w') as f:
+            with (self.config.output_dir / 'config.json').open('wt') as f:
                 json.dump(asdict(self.config), f, indent=2, default=str)
-            data, discriminator = self.create_data()
-            save_tensor(discriminator, self.config.output_dir / 'discriminator')
+            data_generator = DataGenerator(dim=self.config.dim, n_classes=self.config.n_classes, dtype=self.dtype)
+            data = data_generator.generate(n_points=self.config.n_train_samples)
+            save_tensor(data_generator.covariances, self.config.output_dir / 'hyper_cov')
+            save_tensor(data_generator.means, self.config.output_dir / 'hyper_means')
             save_tensor(data.tensors[0], self.config.output_dir / 'X')
             save_tensor(data.tensors[1], self.config.output_dir / 'y')
+            display_count = min(20 * self.config.n_classes, self.config.n_train_samples)
+            self.tb_writer.add_embedding(data.tensors[0][:display_count],
+                                         data.tensors[1][:display_count],
+                                         global_step=0,
+                                         tag='Data class distribution')
             self.model = HRLinearMultilayer(input_dim=self.config.dim,
-                                            n_categories=self.config.n_classes,
+                                            n_classes=self.config.n_classes,
                                             n_hidden_layers=self.config.n_hidden_layers,
                                             dtype=self.dtype).to(self.device)
+            self.model.eval()  # We're not training for the moment.
             self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
             self.logger.info('Model summary', model=summary(self.model, input_size=(self.config.n_train_samples, self.config.dim), verbose=0))
             self.tb_writer.add_graph(self.model, data.tensors[0])
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
-            loss_fn = nn.CrossEntropyLoss()
+            loss_fn = nn.NLLLoss()
             data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
             self.train_model(data=data_loader,
                              optimizer=optimizer,
@@ -190,11 +175,15 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
             with (self.config.output_dir / 'trained_model.pt').open('wb') as f:
                 torch.save(self.model, f)
             self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'trained_model.pt')
-            self.logger.info('||target - model.W||', norm=torch.linalg.vector_norm(discriminator - self.model.W).item())
-            predictions = self.classify_data(data)
+            predictions = self.hard_classify_data(data)
             predictions = torch.stack((predictions, data.tensors[1]), dim=1)  # Stack predictions with true labels for output.
             save_tensor(predictions, self.config.output_dir / 'predictions_truth')
             self.logger.info('Predictions saved', predictions_path=self.config.output_dir / 'predictions_truth.pt')
+            self.logger.info('Final train-set accuracy', accuracy=accuracy(predictions[:, 0], predictions[:, 1]))
+            validation_data = data_generator.generate(n_points=self.config.n_val_samples)
+            val_predictions = self.hard_classify_data(validation_data)
+            save_tensor(torch.stack((val_predictions, validation_data.tensors[1])), self.config.output_dir / 'val_predictions_truth')
+            self.logger.info('Final validation-set accuracy', accuracy=accuracy(val_predictions, validation_data.tensors[1]))
             self.logger.info('Application run completed successfully')
         except Exception as e:
             self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)

@@ -27,3 +27,20 @@ class TestLinearMultilayer:
         data = dg.generate(n_points=n_points)
         assert data.tensors[0].shape == (n_points, dim)
         assert data.tensors[1].shape == (n_points,)
+
+    @pytest.mark.parametrize('dim', [5, 17])
+    @pytest.mark.parametrize('n_classes', [2, 5, 10])
+    def test_data_generator_nontrivial(self, dim, n_classes):
+        """Ensure that the data generator actually produces some points."""
+        dg = DataGenerator(dim=dim, n_classes=n_classes, dtype=torch.float32)
+        data = dg.generate(n_points=200)
+        classes = torch.unique(data.tensors[1])
+        assert classes.shape[0] > 0 and classes.shape[0] <= n_classes
+        # This is stochastic, but has Pr[failure] == (1 - 1/n_classes)^200 <= 1e-9.
+        assert max(classes) == n_classes - 1
+        assert min(classes) == 0
+        for x, _ in data:
+            assert not torch.allclose(x, torch.zeros_like(x))
+            # Also stochastic; somewhat higher chance of failure, but I don't feel
+            # like working it out exactly.
+            assert torch.linalg.vector_norm(x) > 0.1

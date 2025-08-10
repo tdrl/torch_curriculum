@@ -1,8 +1,14 @@
 from dataclasses import dataclass, fields
 from pathlib import Path
 import pytest
+import torch
 
-from torch_playground.util import parse_cmd_line_args, BaseArguments, setup_logging
+from torch_playground.util import (
+    parse_cmd_line_args,
+    BaseArguments,
+    setup_logging,
+    accuracy
+)
 
 class TestUtil:
 
@@ -96,3 +102,9 @@ class TestUtil:
         captured = capsys.readouterr()
         assert 'Debug message to stderr' in captured.err
         assert 'Info message to stderr' in captured.err
+
+    def test_accuracy(self):
+        x = torch.as_tensor([1, 0, 3, 1, 2, 1, 3, 3, 1, 0])
+        y = torch.as_tensor([9, 9, 9, 1, 2, 1, 3, 3, 1, 0])
+        expected_acc = torch.as_tensor(0.7)
+        assert torch.allclose(accuracy(x, y), expected_acc)
