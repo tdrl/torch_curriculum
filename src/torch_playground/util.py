@@ -46,14 +46,12 @@ class BaseArguments:
     recognized by parse_cmd_line_args().
     """
     @staticmethod
-    def _meta(help: Optional[str] = None, required: bool = False):
+    def _meta(help: str = '', required: bool = False):
         """Helper method to define metadata for dataclass fields."""
-        if help is None:
-            help_str = ''
-        else:
-            help_str = help + ' '
+        if help is not '':
+            help = help + ' '
         return {
-            'help': help_str + '(default: %(default)s)',
+            'help': help + '(default: %(default)s)',
             'required': required,
         }
 

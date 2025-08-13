@@ -18,6 +18,7 @@ dependencies = [
     "torch<2.3",
     "torchinfo>=1.8.0",
     "tqdm>=4.67.1",
+    "pytest-cov>=4.1.0",
 ]
 
 [build-system]
@@ -29,3 +30,19 @@ testpaths = [
     "tests",
 ]
 pythonpath = "src"
+
+[tool.coverage.run]
+branch = true
+source = ["src/torch_playground"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+]
+
+[tool.flake8]
+max-line-length = 120

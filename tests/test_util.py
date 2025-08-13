@@ -1,7 +1,8 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, field
 from pathlib import Path
 import pytest
 import torch
+import re
 
 from torch_playground.util import (
     parse_cmd_line_args,
@@ -66,6 +67,18 @@ class TestUtil:
         assert args.arg21 == 'value1'
         assert hasattr(args, 'arg22')
         assert args.arg22 == 100
+
+    def test_parse_cmd_line_args_prints_help(self, capsys):
+        @dataclass
+        class CustomArgs(BaseArguments):
+            arg31: str = field(default='Twas brillig', metadata=BaseArguments._meta(help='A strange beeste'))
+            arg32: int = field(default=7)  # No help provided
+        with pytest.raises(SystemExit):
+            _ = parse_cmd_line_args(CustomArgs(), description='Hunting of the Snark', argv=['--help'])
+        stdout = capsys.readouterr().out
+        assert 'Hunting of the Snark' in stdout
+        assert re.search(r'--arg31.*A strange beeste\s+\(default: Twas brillig\)', stdout, re.IGNORECASE)
+        assert re.search(r'--arg32.*7.*$', stdout, re.IGNORECASE)
 
     def test_logging_creates_files(self, tmp_path):
         """Test that logging creates files in the specified directory."""
