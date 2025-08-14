@@ -8,7 +8,9 @@ from torch_playground.util import (
     parse_cmd_line_args,
     BaseArguments,
     setup_logging,
-    accuracy
+    accuracy,
+    App,
+    save_tensor,
 )
 
 class TestUtil:
@@ -121,3 +123,22 @@ class TestUtil:
         y = torch.as_tensor([9, 9, 9, 1, 2, 1, 3, 3, 1, 0])
         expected_acc = torch.as_tensor(0.7)
         assert torch.allclose(accuracy(x, y), expected_acc)
+
+    def test_app_must_be_implemented(self):
+        with pytest.raises(NotImplementedError):
+            app = App(BaseArguments(), description='Test failing app', argv=[])
+            app.run()
+
+    def test_save_tensor_simple_tensor(self, tmp_path):
+        out_data = torch.as_tensor([1., 2., 3.])
+        dest: Path = tmp_path / 'out'
+        save_tensor(out_data, dest)
+        dest_pt = dest.with_suffix('.pt')
+        dest_txt = dest.with_suffix('.txt')
+        assert dest_pt.exists()
+        assert dest_txt.exists()
+        with dest_pt.open('rb') as d_in:
+            in_data = torch.load(d_in)
+            assert torch.allclose(out_data, in_data)
+        in_text = dest_txt.read_text()
+        assert re.match(r'\s*\[\s*1(.[0-9]*)?\s*,\s*2(.[0-9]*)?\s*,\s*3(.[0-9]*)?\s*\]', in_text)
