@@ -114,8 +114,6 @@ class MultilayerArguments(BaseArguments):
     n_hidden_layers: int = field(default=3, metadata=BaseArguments._meta(help='Number of hidden layers'))
     n_train_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of training samples to generate.'))
     n_val_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of holdout validation set samples to generate.'))
-    epochs: int = field(default=10, metadata=BaseArguments._meta(help='Number of epochs to train the model.'))
-    batch_size: int = field(default=8, metadata=BaseArguments._meta(help='Batch size for training.'))
     learning_rate: float = field(default=0.01, metadata=BaseArguments._meta(help='Learning rate for the optimizer.'))
     output_dir: Path = field(default=get_default_working_dir(),
                              metadata=BaseArguments._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
@@ -181,13 +179,12 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
             self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
             self.logger.info('Model summary', model=summary(self.model, input_size=(self.config.n_train_samples, self.config.dim), verbose=0))
             self.tb_writer.add_graph(self.model, data.tensors[0])
-            optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
             loss_fn = nn.NLLLoss()
             data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
             self.train_model(data=data_loader,
                              optimizer=optimizer,
-                             loss_fn=loss_fn,
-                             num_epochs=self.config.epochs)
+                             loss_fn=loss_fn)
             with (self.config.output_dir / 'trained_model.pt').open('wb') as f:
                 torch.save(self.model, f)
             self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'trained_model.pt')

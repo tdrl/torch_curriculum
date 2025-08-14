@@ -63,6 +63,11 @@ class BaseArguments:
                          metadata=_meta(help='Directory where log files will be stored.'))
     randseed: int = field(default=9_192_631_770,  # Frequency of ground state hyperfine transition of cesium-133 in Hz.
                           metadata=_meta(help='Random seed for reproducibility.'))
+    epochs: int = field(default=10, metadata=_meta(help='Number of epochs to train the model.'))
+    batch_size: int = field(default=8, metadata=_meta(help='Batch size for training.'))
+    monitor_steps: int = field(default=100,
+                               metadata=_meta(help='How frequently to log statistics to Tensorboard, in '
+                                              'steps (minibatches). Set it to a negative number to disable logging.'))
 
 
 def parse_cmd_line_args[T: BaseArguments](arg_template: T, description: Optional[str], argv: Optional[list[str]]) -> T:
@@ -204,8 +209,7 @@ class App[T: BaseArguments, M: torch.nn.Module]:
     def train_model(self,
                     data: DataLoader,
                     optimizer: torch.optim.Optimizer,
-                    loss_fn: torch.nn.Module,
-                    num_epochs: int = 10) -> None:
+                    loss_fn: torch.nn.Module) -> None:
         """Train the model.
 
         This is a generic training loop, appropriate for supervised model training.
@@ -223,26 +227,31 @@ class App[T: BaseArguments, M: torch.nn.Module]:
             num_epochs (int): The number of epochs to train the model for.
         """
         assert self.model is not None, 'Model must be initialized before training.'
-        self.logger.info('Starting model training', num_epochs=num_epochs)
+        self.logger.info('Starting model training', epochs=self.config.epochs)
         self.logger.debug('Optimizer', optimizer=optimizer)
         self.logger.debug('Loss function', loss_function=loss_fn)
         self.model.train()  # Set the model to training mode
         running_loss = 0.0
-        for epoch in tqdm.tqdm(range(num_epochs), desc='Epoch'):
+        for epoch in tqdm.tqdm(range(self.config.epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
             for batch, (X, y) in tqdm.tqdm(enumerate(data), desc='Batch', leave=False, total=len(data)):
                 optimizer.zero_grad()  # Clear gradients
                 predicted = self.model(X)
                 train_loss = loss_fn(predicted, y)
-                running_loss += train_loss.item()
-                if batch % 100 == 0:
-                    epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
-                    self.tb_writer.add_scalar('train loss',
-                                              running_loss / 100,
-                                              epoch * len(data) + batch)
-                    running_loss = 0.0
                 train_loss.backward()
                 optimizer.step()
+                running_loss += train_loss.item()
+                if self.config.monitor_steps > 0 and batch % self.config.monitor_steps == 0:
+                    global_step = epoch * len(data) + batch
+                    epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
+                    self.tb_writer.add_scalar('train loss',
+                                              running_loss / self.config.monitor_steps,
+                                              global_step=global_step)
+                    for name, param in self.model.named_parameters():
+                        self.tb_writer.add_histogram(name,
+                                                     param,
+                                                     global_step=global_step)
+                    running_loss = 0.0
         self.logger.info('Model training completed')
 
 
