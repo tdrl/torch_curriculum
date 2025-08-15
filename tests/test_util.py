@@ -27,11 +27,18 @@ class TestUtil:
             assert hasattr(args, field.name), f'Parsed arguments should have field {field}.'
             assert getattr(args, field.name) == field.default, f'Field {field.name} should have default value {field.default}.'
 
-    def test_parse_cmd_line_args_base_can_override_shared_args(self):
-        args = parse_cmd_line_args(BaseConfiguration(), description=None, argv=['--loglevel', 'DEBUG', '--logdir', '/tmp/logs'])
+    def test_parse_cmd_line_args_base_can_override_shared_args(self, tmp_path):
+        args = parse_cmd_line_args(BaseConfiguration(), description=None, argv=['--loglevel', 'DEBUG',
+                                                                                '--output_dir', str(tmp_path),
+                                                                                '--randseed=42',
+                                                                                '--epochs=3',
+                                                                                '--batch_size', '10'])
         assert isinstance(args, BaseConfiguration)
         assert args.loglevel == 'DEBUG', 'Log level should be overridden to DEBUG.'
-        assert args.logdir == Path('/tmp/logs'), 'Log directory should be overridden to /tmp/logs.'
+        assert args.output_dir == tmp_path, f'Output directory should be overridden to {str(tmp_path)}.'
+        assert args.randseed == 42
+        assert args.epochs == 3
+        assert args.batch_size == 10
 
     def test_parse_cmd_line_args_with_args_preserves_base_fields(self):
         """Test parsing command line arguments defaulted to provided vals."""
@@ -41,8 +48,8 @@ class TestUtil:
             arg2: int = 42
         args = parse_cmd_line_args(CustomArgs(), description=None, argv=[])
         assert isinstance(args, CustomArgs)
-        assert hasattr(args, 'loglevel')
-        assert hasattr(args, 'logdir')
+        assert hasattr(args, 'arg1')
+        assert hasattr(args, 'arg2')
 
     def test_parse_cmd_line_args_with_args_defaults(self):
         """Test parsing command line arguments defaulted to provided vals."""

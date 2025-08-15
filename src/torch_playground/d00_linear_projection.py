@@ -1,6 +1,6 @@
 """Simplest possible torch demo: linear projection with integer values."""
 
-from torch_playground.util import setup_logging
+from torch_playground.util import setup_logging, save_tensor
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset
@@ -75,13 +75,6 @@ def parse_args() -> Arguments:
     parser.add_argument('--n_samples', type=int, default=10, help='Number of samples to generate.')
     parser.add_argument('--output_dir', type=str, default='/tmp/heather', help='Directory to save output files.')  # TODO: better default
     return parser.parse_args(namespace=Arguments())
-
-
-def save_tensor(tensor: torch.Tensor, path: Path):
-    """Save a tensor to a file."""
-    torch.save(tensor, path.with_suffix('.pt'))
-    with open(path.with_suffix('.txt'), 'w') as f:
-        f.write(str(tensor.tolist()))
 
 
 def main(logger: Logger, args: Arguments):

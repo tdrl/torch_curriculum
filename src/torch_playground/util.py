@@ -66,9 +66,6 @@ class BaseConfiguration:
     output_dir: Path = field(default=get_default_working_dir(),
                              metadata=_meta(help='Directory to save the data, checkpoints, trained model, etc. '
                                                  'A timestamped subdirectory will be created under this for each run.'))
-    logdir: Optional[Path] = field(default=None,
-                                   metadata=_meta(help='Directory where log files will be stored. '
-                                                       'If unspecified, will be written under output_dir.'))
     randseed: int = field(default=9_192_631_770,  # Frequency of ground state hyperfine transition of cesium-133 in Hz.
                           metadata=_meta(help='Random seed for reproducibility.'))
     epochs: int = field(default=10, metadata=_meta(help='Number of epochs to train the model.'))
@@ -201,9 +198,8 @@ class App[T: BaseConfiguration, M: torch.nn.Module]:
         self.run_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         self.work_dir = self.config.output_dir / self.run_timestamp
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        if self.config.logdir is None:
-            self.config.logdir = self.work_dir / 'logs'
-        self.logger = setup_logging(self.config.loglevel, self.config.logdir)
+        self.logdir = self.work_dir / 'logs'
+        self.logger = setup_logging(self.config.loglevel, self.logdir)
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
