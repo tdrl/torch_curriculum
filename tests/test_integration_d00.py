@@ -3,7 +3,7 @@ from torch_playground.d00_linear_projection import main, Arguments
 from torch_playground.util import setup_logging
 
 
-class TestIntegrarionD00Linear:
+class TestIntegrationD00Linear:
 
     def test_full_run(self, tmp_path):
         args = Arguments(input_dim=5, output_dim=4, n_samples=11, output_dir=tmp_path)

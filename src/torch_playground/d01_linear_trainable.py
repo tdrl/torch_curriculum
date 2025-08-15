@@ -41,11 +41,7 @@ class LinearTrainableArguments(BaseConfiguration):
     """Command line arguments for the linear trainable application."""
     dim: int = field(default=10, metadata=BaseConfiguration._meta(help='The dimension of the input features.'))
     num_train_samples: int = field(default=100, metadata=BaseConfiguration._meta(help='Number of training samples to generate.'))
-    num_epochs: int = field(default=10, metadata=BaseConfiguration._meta(help='Number of epochs to train the model.'))
-    batch_size: int = field(default=8, metadata=BaseConfiguration._meta(help='Batch size for training.'))
     learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
-    output_dir: Path = field(default=get_default_working_dir(),
-                             metadata=BaseConfiguration._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
 
 class LinearTrainableApp(App[LinearTrainableArguments, HRLinearTrainable]):
     """An application that trains a simple linear model."""
@@ -103,13 +99,13 @@ class LinearTrainableApp(App[LinearTrainableArguments, HRLinearTrainable]):
         # TODO(heather): This is common boilerplate, should be moved to App.
         try:
             self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.config))
-            self.config.output_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.config.output_dir / 'args.txt', 'w') as f:
+            self.work_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.work_dir / 'args.txt', 'w') as f:
                 json.dump(asdict(self.config), f, indent=2, default=str)
             data, discriminator = self.create_data()
-            save_tensor(discriminator, self.config.output_dir / 'discriminator')
-            save_tensor(data.tensors[0], self.config.output_dir / 'X')
-            save_tensor(data.tensors[1], self.config.output_dir / 'y')
+            save_tensor(discriminator, self.work_dir / 'discriminator')
+            save_tensor(data.tensors[0], self.work_dir / 'X')
+            save_tensor(data.tensors[1], self.work_dir / 'y')
             self.model = HRLinearTrainable(input_dim=self.config.dim, dtype=self.dtype).to(self.device)
             self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
             self.logger.info('Model summary', model=summary(self.model, input_size=(self.config.num_train_samples, self.config.dim), verbose=0))
@@ -119,15 +115,14 @@ class LinearTrainableApp(App[LinearTrainableArguments, HRLinearTrainable]):
             data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
             self.train_model(data=data_loader,
                              optimizer=optimizer,
-                             loss_fn=loss_fn,
-                             num_epochs=self.config.num_epochs)
-            save_tensor(self.model.W, self.config.output_dir / 'W_trained')
-            self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'W_trained.pt')
+                             loss_fn=loss_fn)
+            save_tensor(self.model.W, self.work_dir / 'W_trained')
+            self.logger.info('Model trained and saved', model_path=self.work_dir / 'W_trained.pt')
             self.logger.info('||target - model.W||', norm=torch.linalg.vector_norm(discriminator - self.model.W).item())
             predictions = self.classify_data(data)
             predictions = torch.stack((predictions, data.tensors[1]), dim=1)  # Stack predictions with true labels for output.
-            save_tensor(predictions, self.config.output_dir / 'predictions_truth')
-            self.logger.info('Predictions saved', predictions_path=self.config.output_dir / 'predictions_truth.pt')
+            save_tensor(predictions, self.work_dir / 'predictions_truth')
+            self.logger.info('Predictions saved', predictions_path=self.work_dir / 'predictions_truth.pt')
             self.logger.info('Application run completed successfully')
         except Exception as e:
             self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)
