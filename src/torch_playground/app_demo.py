@@ -1,6 +1,6 @@
 """Just a demo that the App framework works."""
 
-from torch_playground.util import App, BaseArguments
+from torch_playground.util import App, BaseConfiguration
 from dataclasses import dataclass, field, asdict
 from structlog.dev import ConsoleRenderer
 
@@ -8,7 +8,7 @@ class DemoApp(App):
     """A simple demo application that extends the App framework."""
 
     @dataclass
-    class DemoArguments(BaseArguments):
+    class DemoArguments(BaseConfiguration):
         """Command line arguments for the demo application."""
         fnord: str = field(default='Now you see me',
                            metadata={

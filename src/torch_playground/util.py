@@ -14,7 +14,7 @@ import os
 import sys
 from pathlib import Path
 import torch
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard.writer import SummaryWriter
 import pprint
 import datetime
@@ -23,23 +23,29 @@ import tqdm
 __all__ = [
     'setup_logging',
     'fetch_api_keys',
-    'BaseArguments',
+    'BaseConfiguration',
     'parse_cmd_line_args',
+    'App',
+    'save_tensor',
 ]
+
 
 def get_default_working_dir() -> Path:
     """Get the default working directory based on the current script name."""
-    return Path('/tmp/') / os.getenv('USER', 'unknown_user') / Path(sys.argv[0]).stem
+    return (Path('/tmp/') /
+            os.getenv('USER', 'unknown_user') /
+            Path(sys.argv[0]).stem)
 
 
 @dataclass
-class BaseArguments:
-    """Root class for command line arguments.
+class BaseConfiguration:
+    """Root class for configurations (e.g., from command line arguments).
 
-    Command line flags are defined as dataclass fields, where the type, default value, and help text are specified
-    and passed to the argparse parser in parse_cmd_line_args.
+    Config parameters are defined as dataclass fields, where the type, default value,
+    and help text (for CLI --help) are specified. From there, during initialization,
+    they're passed to the argparse parser in parse_cmd_line_args.
 
-    This class serves as a base for all command line argument classes.
+    This class serves as a base for all config variable classes.
     It includes common fields such as log level and log directory.
     Implementations should subclass this class and define additional fields as needed.
     IMPORTANT: All subclasses must also be declared as dataclasses for their fields to be
@@ -58,9 +64,11 @@ class BaseArguments:
     loglevel: str = field(default='INFO',
                           metadata=_meta(help='Logging level for stdout logs (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)'))
     output_dir: Path = field(default=get_default_working_dir(),
-                             metadata=_meta(help='Directory to save the data, checkpoints, trained model, etc.'))
-    logdir: Path = field(default=get_default_working_dir() / 'logs',
-                         metadata=_meta(help='Directory where log files will be stored.'))
+                             metadata=_meta(help='Directory to save the data, checkpoints, trained model, etc. '
+                                                 'A timestamped subdirectory will be created under this for each run.'))
+    logdir: Optional[Path] = field(default=None,
+                                   metadata=_meta(help='Directory where log files will be stored. '
+                                                       'If unspecified, will be written under output_dir.'))
     randseed: int = field(default=9_192_631_770,  # Frequency of ground state hyperfine transition of cesium-133 in Hz.
                           metadata=_meta(help='Random seed for reproducibility.'))
     epochs: int = field(default=10, metadata=_meta(help='Number of epochs to train the model.'))
@@ -70,7 +78,7 @@ class BaseArguments:
                                               'steps (minibatches). Set it to a negative number to disable logging.'))
 
 
-def parse_cmd_line_args[T: BaseArguments](arg_template: T, description: Optional[str], argv: Optional[list[str]]) -> T:
+def parse_cmd_line_args[T: BaseConfiguration](arg_template: T, description: Optional[str], argv: Optional[list[str]]) -> T:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=description)
     for field in fields(arg_template):
@@ -177,7 +185,7 @@ def accuracy(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     assert x.shape == y.shape
     return torch.sum(x == y, dim=0) / x.shape[0]
 
-class App[T: BaseArguments, M: torch.nn.Module]:
+class App[T: BaseConfiguration, M: torch.nn.Module]:
     """Base class for applications.
 
     This class provides a common interface for applications, including methods for running the application
@@ -190,15 +198,18 @@ class App[T: BaseArguments, M: torch.nn.Module]:
     def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
         self.model: Optional[M] = None
         self.config = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
+        self.run_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        self.work_dir = self.config.output_dir / self.run_timestamp
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        if self.config.logdir is None:
+            self.config.logdir = self.work_dir / 'logs'
         self.logger = setup_logging(self.config.loglevel, self.config.logdir)
-        self.config.output_dir.mkdir(parents=True, exist_ok=True)
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.logger.debug('Assigned device', device=self.device)
         torch.manual_seed(self.config.randseed)
         self.logger.debug('Set random seed', randseed=self.config.randseed)
-        self.run_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
         self.tb_writer = SummaryWriter(log_dir=self.config.output_dir / 'tensorboard' / self.run_timestamp)
 
     def run(self):
@@ -232,6 +243,7 @@ class App[T: BaseArguments, M: torch.nn.Module]:
         self.logger.debug('Loss function', loss_function=loss_fn)
         self.model.train()  # Set the model to training mode
         running_loss = 0.0
+        running_steps = 0
         for epoch in tqdm.tqdm(range(self.config.epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
             for batch, (X, y) in tqdm.tqdm(enumerate(data), desc='Batch', leave=False, total=len(data)):
@@ -241,17 +253,19 @@ class App[T: BaseArguments, M: torch.nn.Module]:
                 train_loss.backward()
                 optimizer.step()
                 running_loss += train_loss.item()
+                running_steps += 1
                 if self.config.monitor_steps > 0 and batch % self.config.monitor_steps == 0:
                     global_step = epoch * len(data) + batch
-                    epoch_logger.debug('Batch', batch=batch, loss=train_loss.item())
+                    epoch_logger.debug('Batch', batch=batch, global_step=global_step, loss=train_loss.item())
                     self.tb_writer.add_scalar('train loss',
-                                              running_loss / self.config.monitor_steps,
+                                              running_loss / running_steps,
                                               global_step=global_step)
                     for name, param in self.model.named_parameters():
                         self.tb_writer.add_histogram(name,
                                                      param,
                                                      global_step=global_step)
                     running_loss = 0.0
+                    running_steps = 0
         self.logger.info('Model training completed')
 
 

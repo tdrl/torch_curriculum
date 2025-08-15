@@ -6,7 +6,7 @@ import re
 
 from torch_playground.util import (
     parse_cmd_line_args,
-    BaseArguments,
+    BaseConfiguration,
     setup_logging,
     accuracy,
     App,
@@ -17,9 +17,9 @@ class TestUtil:
 
     def test_parse_cmd_line_args_base(self):
         """Test parsing command line arguments with no arguments."""
-        frozen_args = BaseArguments()  # Ensure we're not inspecting the same underlying object.
-        args = parse_cmd_line_args(BaseArguments(), description=None, argv=[])
-        assert isinstance(args, BaseArguments)
+        frozen_args = BaseConfiguration()  # Ensure we're not inspecting the same underlying object.
+        args = parse_cmd_line_args(BaseConfiguration(), description=None, argv=[])
+        assert isinstance(args, BaseConfiguration)
         expected_fields = fields(frozen_args)
         assert len(vars(args)) == len(expected_fields), f'Expected {len(expected_fields)} arguments to be parsed.'
         # Check default values for BaseArguments.
@@ -28,15 +28,15 @@ class TestUtil:
             assert getattr(args, field.name) == field.default, f'Field {field.name} should have default value {field.default}.'
 
     def test_parse_cmd_line_args_base_can_override_shared_args(self):
-        args = parse_cmd_line_args(BaseArguments(), description=None, argv=['--loglevel', 'DEBUG', '--logdir', '/tmp/logs'])
-        assert isinstance(args, BaseArguments)
+        args = parse_cmd_line_args(BaseConfiguration(), description=None, argv=['--loglevel', 'DEBUG', '--logdir', '/tmp/logs'])
+        assert isinstance(args, BaseConfiguration)
         assert args.loglevel == 'DEBUG', 'Log level should be overridden to DEBUG.'
         assert args.logdir == Path('/tmp/logs'), 'Log directory should be overridden to /tmp/logs.'
 
     def test_parse_cmd_line_args_with_args_preserves_base_fields(self):
         """Test parsing command line arguments defaulted to provided vals."""
         @dataclass
-        class CustomArgs(BaseArguments):
+        class CustomArgs(BaseConfiguration):
             arg1: str = 'default1'
             arg2: int = 42
         args = parse_cmd_line_args(CustomArgs(), description=None, argv=[])
@@ -47,7 +47,7 @@ class TestUtil:
     def test_parse_cmd_line_args_with_args_defaults(self):
         """Test parsing command line arguments defaulted to provided vals."""
         @dataclass
-        class CustomArgs(BaseArguments):
+        class CustomArgs(BaseConfiguration):
             arg1: str = 'default1'
             arg2: int = 42
         args = parse_cmd_line_args(CustomArgs(), description=None, argv=[])
@@ -60,7 +60,7 @@ class TestUtil:
     def test_parse_cmd_line_args_with_args_provided(self):
         """Test parsing command line arguments with provided values."""
         @dataclass
-        class CustomArgs2(BaseArguments):
+        class CustomArgs2(BaseConfiguration):
             arg21: str = 'default1'
             arg22: int = 42
         args = parse_cmd_line_args(CustomArgs2(), description='', argv=['--arg21', 'value1', '--arg22', '100'])
@@ -72,8 +72,8 @@ class TestUtil:
 
     def test_parse_cmd_line_args_prints_help(self, capsys):
         @dataclass
-        class CustomArgs(BaseArguments):
-            arg31: str = field(default='Twas brillig', metadata=BaseArguments._meta(help='A strange beeste'))
+        class CustomArgs(BaseConfiguration):
+            arg31: str = field(default='Twas brillig', metadata=BaseConfiguration._meta(help='A strange beeste'))
             arg32: int = field(default=7)  # No help provided
         with pytest.raises(SystemExit):
             _ = parse_cmd_line_args(CustomArgs(), description='Hunting of the Snark', argv=['--help'])
@@ -126,7 +126,7 @@ class TestUtil:
 
     def test_app_must_be_implemented(self):
         with pytest.raises(NotImplementedError):
-            app = App(BaseArguments(), description='Test failing app', argv=[])
+            app = App(BaseConfiguration(), description='Test failing app', argv=[])
             app.run()
 
     def test_save_tensor_simple_tensor(self, tmp_path):

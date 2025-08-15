@@ -1,6 +1,6 @@
 """The most basic trainable model: single linear transform, no bias."""
 
-from torch_playground.util import BaseArguments, App, save_tensor, get_default_working_dir
+from torch_playground.util import BaseConfiguration, App, save_tensor, get_default_working_dir
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
@@ -37,15 +37,15 @@ class HRLinearTrainable(nn.Module):
 
 
 @dataclass
-class LinearTrainableArguments(BaseArguments):
+class LinearTrainableArguments(BaseConfiguration):
     """Command line arguments for the linear trainable application."""
-    dim: int = field(default=10, metadata=BaseArguments._meta(help='The dimension of the input features.'))
-    num_train_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of training samples to generate.'))
-    num_epochs: int = field(default=10, metadata=BaseArguments._meta(help='Number of epochs to train the model.'))
-    batch_size: int = field(default=8, metadata=BaseArguments._meta(help='Batch size for training.'))
-    learning_rate: float = field(default=0.01, metadata=BaseArguments._meta(help='Learning rate for the optimizer.'))
+    dim: int = field(default=10, metadata=BaseConfiguration._meta(help='The dimension of the input features.'))
+    num_train_samples: int = field(default=100, metadata=BaseConfiguration._meta(help='Number of training samples to generate.'))
+    num_epochs: int = field(default=10, metadata=BaseConfiguration._meta(help='Number of epochs to train the model.'))
+    batch_size: int = field(default=8, metadata=BaseConfiguration._meta(help='Batch size for training.'))
+    learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
     output_dir: Path = field(default=get_default_working_dir(),
-                             metadata=BaseArguments._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
+                             metadata=BaseConfiguration._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
 
 class LinearTrainableApp(App[LinearTrainableArguments, HRLinearTrainable]):
     """An application that trains a simple linear model."""

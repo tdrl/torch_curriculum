@@ -1,7 +1,7 @@
 """A simple, multilayer feed forward model with categorical outputs."""
 
 from torch_playground.util import (
-    BaseArguments,
+    BaseConfiguration,
     App,
     save_tensor,
     get_default_working_dir,
@@ -107,16 +107,15 @@ class DataGenerator:
 
 
 @dataclass
-class MultilayerArguments(BaseArguments):
+class MultilayerArguments(BaseConfiguration):
     """Command line arguments for the linear trainable application."""
-    dim: int = field(default=10, metadata=BaseArguments._meta(help='The dimension of the input features.'))
-    n_classes: int = field(default=5, metadata=BaseArguments._meta(help='Number of output classes'))
-    n_hidden_layers: int = field(default=3, metadata=BaseArguments._meta(help='Number of hidden layers'))
-    n_train_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of training samples to generate.'))
-    n_val_samples: int = field(default=100, metadata=BaseArguments._meta(help='Number of holdout validation set samples to generate.'))
-    learning_rate: float = field(default=0.01, metadata=BaseArguments._meta(help='Learning rate for the optimizer.'))
-    output_dir: Path = field(default=get_default_working_dir(),
-                             metadata=BaseArguments._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
+    dim: int = field(default=10, metadata=BaseConfiguration._meta(help='The dimension of the input features.'))
+    n_classes: int = field(default=5, metadata=BaseConfiguration._meta(help='Number of output classes'))
+    n_hidden_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of hidden layers'))
+    n_train_samples: int = field(default=100, metadata=BaseConfiguration._meta(help='Number of training samples to generate.'))
+    n_val_samples: int = field(default=100, metadata=BaseConfiguration._meta(help='Number of holdout validation set samples to generate.'))
+    learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
+
 
 class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
     """An application that trains a simple linear model."""
@@ -148,8 +147,7 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
         # TODO(heather): This is common boilerplate, should be moved to App.
         try:
             self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.config))
-            self.config.output_dir.mkdir(parents=True, exist_ok=True)
-            with (self.config.output_dir / 'config.json').open('wt') as f:
+            with (self.work_dir / 'config.json').open('wt') as f:
                 json.dump(asdict(self.config), f, indent=2, default=str)
             data_generator = DataGenerator(dim=self.config.dim, n_classes=self.config.n_classes, dtype=self.dtype)
             data = data_generator.generate(n_points=self.config.n_train_samples)
@@ -157,10 +155,10 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
                               n_points=len(data),
                               dim=data.tensors[0].shape[1],
                               n_classes=torch.unique(data.tensors[1]).shape[0])
-            save_tensor(data_generator.covariances, self.config.output_dir / 'hyper_cov')
-            save_tensor(data_generator.means, self.config.output_dir / 'hyper_means')
-            save_tensor(data.tensors[0], self.config.output_dir / 'X')
-            save_tensor(data.tensors[1], self.config.output_dir / 'y')
+            save_tensor(data_generator.covariances, self.work_dir / 'hyper_cov')
+            save_tensor(data_generator.means, self.work_dir / 'hyper_means')
+            save_tensor(data.tensors[0], self.work_dir / 'X')
+            save_tensor(data.tensors[1], self.work_dir / 'y')
             self.tb_writer.add_embedding(data_generator.means,
                                          metadata=torch.range(0, self.config.n_classes - 1),
                                          global_step=0,
@@ -185,17 +183,17 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
             self.train_model(data=data_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
-            with (self.config.output_dir / 'trained_model.pt').open('wb') as f:
+            with (self.work_dir / 'trained_model.pt').open('wb') as f:
                 torch.save(self.model, f)
-            self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'trained_model.pt')
+            self.logger.info('Model trained and saved', model_path=self.work_dir / 'trained_model.pt')
             predictions = self.hard_classify_data(data)
             predictions = torch.stack((predictions, data.tensors[1]), dim=1)  # Stack predictions with true labels for output.
-            save_tensor(predictions, self.config.output_dir / 'predictions_truth')
-            self.logger.info('Predictions saved', predictions_path=self.config.output_dir / 'predictions_truth.pt')
+            save_tensor(predictions, self.work_dir / 'predictions_truth')
+            self.logger.info('Predictions saved', predictions_path=self.work_dir / 'predictions_truth.pt')
             self.logger.info('Final train-set accuracy', accuracy=accuracy(predictions[:, 0], predictions[:, 1]))
             validation_data = data_generator.generate(n_points=self.config.n_val_samples)
             val_predictions = self.hard_classify_data(validation_data)
-            save_tensor(torch.stack((val_predictions, validation_data.tensors[1])), self.config.output_dir / 'val_predictions_truth')
+            save_tensor(torch.stack((val_predictions, validation_data.tensors[1])), self.work_dir / 'val_predictions_truth')
             self.logger.info('Final validation-set accuracy', accuracy=accuracy(val_predictions, validation_data.tensors[1]))
             self.logger.info('Application run completed successfully')
         except Exception as e:

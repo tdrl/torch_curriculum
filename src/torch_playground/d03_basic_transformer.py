@@ -1,7 +1,7 @@
 """A simple, few layer transformer model."""
 
 from torch_playground.util import (
-    BaseArguments,
+    BaseConfiguration,
     App,
     save_tensor,
     get_default_working_dir,
@@ -34,13 +34,13 @@ class HRBasicTransformer(nn.Module):
 
 
 @dataclass
-class BasicTransformerConfig(BaseArguments):
+class BasicTransformerConfig(BaseConfiguration):
     """Command line arguments for the simple Transformer."""
-    epochs: int = field(default=10, metadata=BaseArguments._meta(help='Number of epochs to train the model.'))
-    batch_size: int = field(default=8, metadata=BaseArguments._meta(help='Batch size for training.'))
-    learning_rate: float = field(default=0.01, metadata=BaseArguments._meta(help='Learning rate for the optimizer.'))
+    epochs: int = field(default=10, metadata=BaseConfiguration._meta(help='Number of epochs to train the model.'))
+    batch_size: int = field(default=8, metadata=BaseConfiguration._meta(help='Batch size for training.'))
+    learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
     output_dir: Path = field(default=get_default_working_dir(),
-                             metadata=BaseArguments._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
+                             metadata=BaseConfiguration._meta(help='Directory to save the data, checkpoints, trained model, etc.'))
 
 class LinearTrainableApp(App[BasicTransformerConfig, HRBasicTransformer]):
     """An application that trains a simple linear model."""
