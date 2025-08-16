@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 import torch
 import re
+import json
 
 from torch_playground.util import (
     parse_cmd_line_args,
@@ -149,3 +150,23 @@ class TestUtil:
             assert torch.allclose(out_data, in_data)
         in_text = dest_txt.read_text()
         assert re.match(r'\s*\[\s*1(.[0-9]*)?\s*,\s*2(.[0-9]*)?\s*,\s*3(.[0-9]*)?\s*\]', in_text)
+
+    def test_app_init_saves_config(self, tmp_path):
+        @dataclass
+        class LocalConfig(BaseConfiguration):
+            foo: int = field(default=7)
+            bar: str = field(default='Twas brillig and the slithy toves')
+        app = App(LocalConfig(), description='testing app', argv=['--output_dir', str(tmp_path),
+                                                                  '--foo', '42',
+                                                                  '--bar', 'uuddlrlr'])
+        # Ensures that we're loading from file and not just reconsituting
+        # defaults.
+        expected = LocalConfig(foo=42, bar='uuddlrlr', output_dir=tmp_path)
+        assert tmp_path in app.work_dir.parents
+        config_file = app.work_dir / 'config.json'
+        assert config_file.exists()
+        actual = LocalConfig(**json.loads(config_file.read_text()))
+        # This is a hack - not clear on the "right" way to auto-thunk
+        # text to paths.
+        actual.output_dir = Path(actual.output_dir)
+        assert actual == expected

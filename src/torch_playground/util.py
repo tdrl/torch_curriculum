@@ -7,7 +7,7 @@ from structlog.dev import ConsoleRenderer, RichTracebackFormatter, RED, GREEN, B
 from structlog.stdlib import add_log_level, PositionalArgumentsFormatter
 import logging
 import logging.config
-from dataclasses import dataclass, fields, field
+from dataclasses import dataclass, fields, field, asdict
 import argparse
 from typing import Optional
 import os
@@ -19,6 +19,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 import pprint
 import datetime
 import tqdm
+import json
 
 __all__ = [
     'setup_logging',
@@ -200,6 +201,9 @@ class App[T: BaseConfiguration, M: torch.nn.Module]:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.logdir = self.work_dir / 'logs'
         self.logger = setup_logging(self.config.loglevel, self.logdir)
+        config_dest = (self.work_dir / 'config.json')
+        config_dest.write_text(json.dumps(asdict(self.config), indent=2, default=str))
+        self.logger.debug('Saved config', file=str(config_dest))
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

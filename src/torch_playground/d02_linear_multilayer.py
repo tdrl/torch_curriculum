@@ -14,7 +14,6 @@ from torchinfo import summary
 from typing import Optional
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-import json
 import structlog
 
 
@@ -147,8 +146,6 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
         # TODO(heather): This is common boilerplate, should be moved to App.
         try:
             self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.config))
-            with (self.work_dir / 'config.json').open('wt') as f:
-                json.dump(asdict(self.config), f, indent=2, default=str)
             data_generator = DataGenerator(dim=self.config.dim, n_classes=self.config.n_classes, dtype=self.dtype)
             data = data_generator.generate(n_points=self.config.n_train_samples)
             self.logger.debug('Synthesized data',

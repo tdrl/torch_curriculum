@@ -101,5 +101,5 @@ if __name__ == '__main__':
     logger.info('Starting linear projection demo.')
     args = parse_args()
     logger.debug(f'Arguments: {args}')
-    main(logger=logger, args=args)
+    main(logger=logger, args=args)   # type: ignore
     logger.info('Demo done.')

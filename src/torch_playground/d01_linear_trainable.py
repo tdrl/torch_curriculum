@@ -8,7 +8,6 @@ from torchinfo import summary
 from typing import Optional
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-import json
 
 
 class HRLinearTrainable(nn.Module):
@@ -100,8 +99,6 @@ class LinearTrainableApp(App[LinearTrainableArguments, HRLinearTrainable]):
         try:
             self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.config))
             self.work_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.work_dir / 'args.txt', 'w') as f:
-                json.dump(asdict(self.config), f, indent=2, default=str)
             data, discriminator = self.create_data()
             save_tensor(discriminator, self.work_dir / 'discriminator')
             save_tensor(data.tensors[0], self.work_dir / 'X')

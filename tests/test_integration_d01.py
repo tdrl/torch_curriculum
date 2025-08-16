@@ -12,7 +12,7 @@ class TestIntegrationD01Linear:
                                   '--output_dir', str(tmp_path)])
         app.run()
         expected_files = [
-            'args.txt',
+            'config.json',
             'discriminator.txt',
             'discriminator.pt',
             'X.txt',
