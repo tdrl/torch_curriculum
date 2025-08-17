@@ -12,7 +12,7 @@ from torchinfo import summary
 from typing import Optional
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
-import json
+import math
 
 
 class HRBasicTransformer(nn.Module):
@@ -60,6 +60,49 @@ class BasicTransformerConfig(BaseConfiguration):
     n_encoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of encoder layers.'))
     n_decoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of decoder layers.'))
     d_feedfoward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
+    in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
+    out_seq_length: int = field(default=32, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
+
+
+def sieve(n: int) -> list[bool]:
+    """Generate list of primes via the Sieve of Eratosthenes.
+
+    Args:
+        n (int): Largest number to search up to (inclusive).
+
+    Returns:
+        list[bool]: Mapping from int to bool: l[i] == True iff i is prime. Len(l) == n + 1
+            (since both 0 and n are included).
+    """
+    assert n >= 0
+    result: list[bool] = [True] * (n + 1)
+    result[0] = False
+    if n == 0:
+        return result
+    result[1] = False
+    curr_prime = 2
+    upper_bound = math.ceil(math.sqrt(n))
+    try:
+        while curr_prime <= upper_bound:
+            for i in range(2 * curr_prime, n + 1, curr_prime):
+                result[i] = False
+            curr_prime = result.index(True, curr_prime + 1)
+    except ValueError:
+        # No more primes left in list - terminate sieve.
+        pass
+    return result
+
+
+def generate_data(n_points: int, in_seq_length: int, out_seq_length: int, dim: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Toy data generator: Let's try to learn the notion of primality."""
+    # We want a Toeplitz matrix with ascending integer sequences as rows. This is not
+    # a super efficient way to construct it, but as long as the data is small. :shrug:
+    input_int_seqs = torch.empty((n_points, in_seq_length))
+    output_int_seqs = torch.empty((n_points, out_seq_length))
+    primes = torch.as_tensor(sieve(n_points + in_seq_length))
+    for i in range(n_points):
+        input_int_seqs[i, :] = torch.as_tensor(range(i, i + in_seq_length))
+    return input_int_seqs, output_int_seqs
 
 
 class BasicTransformerApp(App[BasicTransformerConfig, HRBasicTransformer]):
@@ -82,8 +125,8 @@ class BasicTransformerApp(App[BasicTransformerConfig, HRBasicTransformer]):
                                             d_feedforward=self.config.d_feedfoward,
                                             dtype=self.dtype).to(self.device)
             self.model.eval()  # We're not training for the moment.
-            placeholder_src = torch.ones(self.config.batch_size, 20, self.config.d_model)  # batch_size items of len 20 and dim d_model.
-            placeholder_target = torch.ones(self.config.batch_size, 10, self.config.d_model)  # batch size items of len 10 and dim d_model.
+            placeholder_src = torch.ones(self.config.batch_size, self.config.in_seq_length, self.config.d_model)  # batch_size items of len in_seq_len and dim d_model.
+            placeholder_target = torch.ones(self.config.batch_size, self.config.out_seq_length, self.config.d_model)  # batch size items of len out_seq_len and dim d_model.
             model_summary = summary(self.model, input_size=(placeholder_src.shape, placeholder_target.shape), verbose=0)
             self.logger.info('Model summary', model=model_summary)
             (self.work_dir / 'model_summary.txt').write_text(str(model_summary))
