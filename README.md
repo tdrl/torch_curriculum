@@ -13,4 +13,4 @@ This is a personal learning exercise: a series of small programs of increasing c
 
 # A Note on Versions
 
-This is all written in the now-ancient PyTorch 2.2 because my equally ancient laptop is an Intel Mac, and PyTorch dropped support for Intel Macs after 2.2. This code _should_ be forward-compatible, albeit not with the newest bells-and-whistles. But I haven't tested it against a newer torch version, so YMMV. :shrugwoman:
+This is all written in the now-ancient PyTorch 2.2 because my equally ancient laptop is an Intel Mac, and PyTorch dropped support for Intel Macs after 2.2. This code _should_ be forward-compatible, albeit not with the newest bells-and-whistles. But I haven't tested it against a newer torch version, so YMMV. :woman_shrugging:
