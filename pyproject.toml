@@ -30,6 +30,9 @@ testpaths = [
     "tests",
 ]
 pythonpath = "src"
+markers = [
+    "integration: marks tests as interation (deselect with '-m \"not integration\"')",
+]
 
 [tool.coverage.run]
 branch = true
