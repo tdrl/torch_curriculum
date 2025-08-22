@@ -10,7 +10,6 @@ import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from torchinfo import summary
 from typing import Optional
-from pathlib import Path
 from dataclasses import dataclass, field, asdict
 import math
 
@@ -33,6 +32,7 @@ class HRBasicTransformer(nn.Module):
                  n_encoder_layers: int,
                  n_decoder_layers: int,
                  d_feedforward: int,
+                 vocab_size: int,
                  dtype: torch.dtype = torch.float32):
         super().__init__()
         self.xformer = torch.nn.Transformer(
@@ -43,6 +43,25 @@ class HRBasicTransformer(nn.Module):
                 dim_feedforward=d_feedforward,
                 batch_first=True,
                 dtype=dtype)
+        # Embedding matrix is a Fourier orthogonal basis of shape (vocab_size, d_model).
+        self.embedding_basis = torch.cos(torch.outer(torch.arange(0, vocab_size, dtype=dtype),
+                                                     torch.arange(0, d_model, dtype=dtype) * (2. * torch.pi / d_model)))
+
+    def embed(self, src: torch.Tensor) -> torch.Tensor:
+        """Embed the source tensor.
+
+        Embedding is a mapping from, in this case, Z^n -> R^d*n, for a sequence of n integers
+        to a sequence of n vectors of dimension d. Here we're using a simple Fourier orthogonal
+        basis for demo purposes.
+
+        Args:
+            src (torch.Tensor): Source tensor of shape (batch_size, seq_length) and an int dtype.
+
+        Returns:
+            torch.Tensor: Embedded source tensor of shape (batch_size, seq_length, d_model),
+            matching the expected input of the transformer.
+        """
+        return self.embedding_basis[src]
 
     def forward(self, src: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Forward pass through the transformer stack."""
@@ -62,6 +81,7 @@ class BasicTransformerConfig(BaseConfiguration):
     d_feedfoward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
     in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
     out_seq_length: int = field(default=32, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
+    vocab_size: int = field(default=2048, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens).'))
 
 
 def sieve(n: int) -> list[bool]:
