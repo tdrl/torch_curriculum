@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, asdict
 import math
 
 
-class HRBasicTransformer(nn.Module):
+class HRLBasicTransformer(nn.Module):
     """A basic demo of using a Transformer.
 
     This uses the simplest, out of the box, Transformer demo object -- torch.nn.Transformer.
@@ -43,9 +43,12 @@ class HRBasicTransformer(nn.Module):
                 dim_feedforward=d_feedforward,
                 batch_first=True,
                 dtype=dtype)
-        # Embedding matrix is a Fourier orthogonal basis of shape (vocab_size, d_model).
-        self.embedding_basis = torch.cos(torch.outer(torch.arange(0, vocab_size, dtype=dtype),
-                                                     torch.arange(0, d_model, dtype=dtype) * (2. * torch.pi / d_model)))
+        # For vocab_size > d_model, it's not possible to exactly pick an orthogonal vector set. But
+        # we can get asymptotically "approximately orthogonal" by simply picking normally distributed
+        # random vectors.
+        # Shape: (vocab_sizw, d_model) so that embedding_mapping[k, :] is the embedding of the k'th symbol
+        # in the vocabulary.
+        self.embedding_mapping = torch.nn.functional.normalize(torch.randn((vocab_size, d_model)), dim=1)
 
     def embed(self, src: torch.Tensor) -> torch.Tensor:
         """Embed the source tensor.
@@ -61,7 +64,7 @@ class HRBasicTransformer(nn.Module):
             torch.Tensor: Embedded source tensor of shape (batch_size, seq_length, d_model),
             matching the expected input of the transformer.
         """
-        return self.embedding_basis[src]
+        return self.embedding_mapping[src]
 
     def forward(self, src: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Forward pass through the transformer stack."""
@@ -125,20 +128,20 @@ def generate_data(n_points: int, in_seq_length: int, out_seq_length: int, dim: i
     return input_int_seqs, output_int_seqs
 
 
-class BasicTransformerApp(App[BasicTransformerConfig, HRBasicTransformer]):
+class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
     """An application that trains a simple linear model."""
 
     def __init__(self, argv: Optional[list[str]] = None):
         super().__init__(BasicTransformerConfig(),
                          'Train a small, basic Transformer model.',
                          argv=argv)
-        self.model: Optional[HRBasicTransformer] = None
+        self.model: Optional[HRLBasicTransformer] = None
 
     def run(self):
         # TODO(heather): This is common boilerplate, should be moved to App.
         try:
             self.logger.info('Starting BasicTranformer demo app with arguments', **asdict(self.config))
-            self.model = HRBasicTransformer(d_model=self.config.d_model,
+            self.model = HRLBasicTransformer(d_model=self.config.d_model,
                                             n_heads=self.config.n_heads,
                                             n_encoder_layers=self.config.n_encoder_layers,
                                             n_decoder_layers=self.config.n_decoder_layers,
