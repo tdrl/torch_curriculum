@@ -14,6 +14,20 @@ from dataclasses import dataclass, field, asdict
 import math
 
 
+@dataclass
+class BasicTransformerConfig(BaseConfiguration):
+    """Command line arguments for the simple Transformer."""
+    learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
+    d_model: int = field(default=128, metadata=BaseConfiguration._meta(help='Model internal embedding dimension.'))
+    n_heads: int = field(default=4, metadata=BaseConfiguration._meta(help='Number of attentional heads. Must divide d_model exactly.'))
+    n_encoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of encoder layers.'))
+    n_decoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of decoder layers.'))
+    d_feedfoward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
+    in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
+    out_seq_length: int = field(default=32, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
+    vocab_size: int = field(default=2048, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens).'))
+
+
 class HRLBasicTransformer(nn.Module):
     """A basic demo of using a Transformer.
 
@@ -71,8 +85,19 @@ class HRLBasicTransformer(nn.Module):
         # Embed tensor shape: (v, e) => (1, 1, v, e) (virtually via broadcast semantics)
         self.decoder = torch.nn.CosineSimilarity(dim=3)
 
-    def embed(self, src: torch.Tensor) -> torch.Tensor:
-        """Embed the source tensor.
+    @staticmethod
+    def from_config(config: BasicTransformerConfig, dtype: torch.dtype = torch.float32) -> 'HRLBasicTransformer':
+        """Factory method: Create an instance of HRLBasicTransformer given a config object."""
+        return HRLBasicTransformer(d_model=config.d_model,
+                                   n_heads=config.n_heads,
+                                   n_encoder_layers=config.n_encoder_layers,
+                                   n_decoder_layers=config.n_encoder_layers,
+                                   d_feedforward=config.d_feedfoward,
+                                   vocab_size=config.vocab_size,
+                                   dtype=dtype)
+
+    def embed(self, data: torch.Tensor) -> torch.Tensor:
+        """Embed a data tensor.
 
         Embedding is a mapping from, in this case, Z^n -> R^d*n, for a sequence of n integers
         to a sequence of n vectors of dimension d. Here we're using a simple Fourier orthogonal
@@ -85,7 +110,7 @@ class HRLBasicTransformer(nn.Module):
             torch.Tensor: Embedded source tensor of shape (batch_size, seq_length, d_model),
             matching the expected input of the transformer.
         """
-        return self.embedding_mapping[src]
+        return self.embedding_mapping[data]
 
     def decode(self, src: torch.Tensor) -> torch.Tensor:
         """Decode an embedded vector space into logits over symbols.
@@ -104,24 +129,10 @@ class HRLBasicTransformer(nn.Module):
         """Forward pass through the transformer stack."""
         # Todo: set up masks.
         # Dims: xformer.forward takes (batch, in_seq, embed_dim) -> (batch, out_seq, embed_dim)
-        src_embedded = self.embed(src=src)
-        tgt_embedded = self.embed(target)
-        result = self.xformer.forward(src=src_embedded, tgt=tgt_embedded)
-        return self.decode(result)  # TODO(hlane): Decode
-
-
-@dataclass
-class BasicTransformerConfig(BaseConfiguration):
-    """Command line arguments for the simple Transformer."""
-    learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
-    d_model: int = field(default=128, metadata=BaseConfiguration._meta(help='Model internal embedding dimension.'))
-    n_heads: int = field(default=4, metadata=BaseConfiguration._meta(help='Number of attentional heads. Must divide d_model exactly.'))
-    n_encoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of encoder layers.'))
-    n_decoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of decoder layers.'))
-    d_feedfoward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
-    in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
-    out_seq_length: int = field(default=32, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
-    vocab_size: int = field(default=2048, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens).'))
+        src_embedded = self.embed(data=src)
+        tgt_embedded = self.embed(data=target)
+        result = self.xformer(src=src_embedded, tgt=tgt_embedded)
+        return self.decode(result)
 
 
 def sieve(n: int) -> list[bool]:

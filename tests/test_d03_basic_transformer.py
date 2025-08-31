@@ -11,18 +11,6 @@ from dataclasses import asdict
 from typing import Any
 
 
-def filter_config(config: BasicTransformerConfig) -> dict[str, Any]:
-    """Filter a dataclass dict down to the minimum required fields for creating a model."""
-    return {
-        'd_model': config.d_model,
-        'n_heads': config.n_heads,
-        'n_encoder_layers': config.n_encoder_layers,
-        'n_decoder_layers': config.n_decoder_layers,
-        'd_feedforward': config.d_feedfoward,
-        'vocab_size': config.vocab_size,
-    }
-
-
 class TestD03BasicTransformer:
 
     def test_sieve_err(self):
@@ -57,7 +45,7 @@ class TestD03BasicTransformer:
 
     def test_embedding_matrix_nearly_orthonormal(self):
         config = BasicTransformerConfig(d_model=128, vocab_size=512)
-        model = HRLBasicTransformer(**filter_config(config=config))
+        model = HRLBasicTransformer.from_config(config=config)
         embedding_matrix = model.embedding_mapping
         assert embedding_matrix.shape == (config.vocab_size, config.d_model)
         es = embedding_matrix @ embedding_matrix.T
@@ -73,7 +61,7 @@ class TestD03BasicTransformer:
         d_model = 64
         vocab_size = 271
         config = BasicTransformerConfig(d_model=d_model, vocab_size=vocab_size)
-        model = HRLBasicTransformer(**filter_config(config))
+        model = HRLBasicTransformer.from_config(config)
         batch_size = 7
         seq_length = 149
         data = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_length))
@@ -87,7 +75,7 @@ class TestD03BasicTransformer:
         d_model = 64
         vocab_size = 271
         config = BasicTransformerConfig(d_model=d_model, vocab_size=vocab_size)
-        model = HRLBasicTransformer(**filter_config(config))
+        model = HRLBasicTransformer.from_config(config)
         batch_size = 7
         seq_length = 149
         data = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_length))
@@ -103,7 +91,7 @@ class TestD03BasicTransformer:
         batch_size = 7
         seq_len = 3
         config = BasicTransformerConfig(d_model=d_model, vocab_size=vocab_size, in_seq_length=seq_len, out_seq_length=seq_len, n_heads=3)
-        model = HRLBasicTransformer(**filter_config(config=config))
+        model = HRLBasicTransformer.from_config(config=config)
         # Override initializer for embedding so that we can predict the cosine similarity.
         model.embedding_mapping = torch.zeros(size=(vocab_size, d_model), dtype=torch.float32)
         for v in range(vocab_size):
@@ -124,6 +112,23 @@ class TestD03BasicTransformer:
                     # Hence: Full cosine sim devolves to this special form in this case.
                     assert torch.allclose(actual[b, s, v], (b + 1) * (s + 1) * v / torch.linalg.vector_norm(src_data_embedded[b, s]))
 
+    def test_transformer_in_out(self):
+        d_model = 9
+        vocab_size = 5
+        batch_size = 7
+        in_seq_len = 11
+        out_seq_len = 8
+        config = BasicTransformerConfig(d_model=d_model,
+                                        vocab_size=vocab_size,
+                                        in_seq_length=in_seq_len,
+                                        out_seq_length=out_seq_len,
+                                        n_heads=3)
+        model = HRLBasicTransformer.from_config(config=config)
+        src_data = torch.randn(size=(batch_size, in_seq_len, d_model))
+        tgt_data = torch.randn(size=(batch_size, out_seq_len, d_model))
+        result: torch.Tensor = model.xformer(src_data, tgt_data)
+        assert result.shape == tgt_data.shape
+
     @pytest.mark.parametrize(['d_model', 'vocab_size', 'batch_size', 'in_seq_length', 'out_seq_length'],
                              ((32, 271, 7, 149, 93),
                               (64, 101, 13, 217, 181),
@@ -135,8 +140,8 @@ class TestD03BasicTransformer:
                                         n_heads=8,
                                         in_seq_length=in_seq_length,
                                         out_seq_length=out_seq_length)
-        model = HRLBasicTransformer(**filter_config(config))
+        model = HRLBasicTransformer.from_config(config)
         src = torch.randint(low=0, high=vocab_size, size=(batch_size, in_seq_length))
-        target = torch.randint(low=0, high=vocab_size, size=(batch_size, out_seq_length, vocab_size))
+        target = torch.randint(low=0, high=vocab_size, size=(batch_size, out_seq_length))
         actual = model(src, target)
-        assert actual.shape == (batch_size, in_seq_length, vocab_size)
+        assert actual.shape == (batch_size, out_seq_length, vocab_size)
