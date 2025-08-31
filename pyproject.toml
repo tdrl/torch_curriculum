@@ -19,6 +19,7 @@ dependencies = [
     "torchinfo>=1.8.0",
     "tqdm>=4.67.1",
     "pytest-cov>=4.1.0",
+    "flake8>=7.3.0",
 ]
 
 [build-system]

@@ -24,6 +24,18 @@ class HRLBasicTransformer(nn.Module):
 
     Note: We use the "batch first" data convention here, so source and target tensors must
     be of shape (batch_size, seq_length, embedded_space_dim).
+
+    Most of the args go direct into the torch.nn.Transformer model - see its docs for
+    precise semantics.
+
+    Args:
+        d_model (int): Embedding dimension in which model is manipulating symbols.
+        n_heads (int): Number of attention heads.
+            Note: d_model must be a multiple of n_heads (d_model % n_heads == 0).
+        n_decoder_layers (int): Number of decoder layers.
+        n_encoder_layers (int): Number of encoder layers.
+        d_feedforward (int): Dimension of final feedforward dense layers.
+        vocab_size (int): Vocabulary size for encoding/decoding layers.
     """
 
     def __init__(self,
@@ -48,7 +60,16 @@ class HRLBasicTransformer(nn.Module):
         # random vectors.
         # Shape: (vocab_sizw, d_model) so that embedding_mapping[k, :] is the embedding of the k'th symbol
         # in the vocabulary.
+        self.vocab_size = vocab_size
         self.embedding_mapping = torch.nn.functional.normalize(torch.randn((vocab_size, d_model)), dim=1)
+        # Decoding: We'll use cosine similarity along the embedding dimension and exploit broadcast
+        # semantics to map the input (src) over the vocabulary dimension. The embedding dimension is the
+        # final one, but we need to expand src by introducing a length 1 pseudo-dimension to make the
+        # broadcast semantics right, so both tensors will have effective length 4. Hence, the final dimension
+        # is 3.
+        # Src shape: (b, s, e) => (b, s, 1, e) (via unsqueeze)
+        # Embed tensor shape: (v, e) => (1, 1, v, e) (virtually via broadcast semantics)
+        self.decoder = torch.nn.CosineSimilarity(dim=3)
 
     def embed(self, src: torch.Tensor) -> torch.Tensor:
         """Embed the source tensor.
@@ -66,11 +87,27 @@ class HRLBasicTransformer(nn.Module):
         """
         return self.embedding_mapping[src]
 
+    def decode(self, src: torch.Tensor) -> torch.Tensor:
+        """Decode an embedded vector space into logits over symbols.
+
+        Args:
+            src (torch.Tensor): Input Tensor of shape (batch, seq, embed_dim)
+
+        Returns
+            torch.Tensor: Decoded sequences of shape (batch, seq, vocab_size), where
+                out[b, s, j] is the logit of batch element b, position s in the sequence,
+                likelihood of being symbol j.
+        """
+        return self.decoder(torch.unsqueeze(src, -2), self.embedding_mapping)
+
     def forward(self, src: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Forward pass through the transformer stack."""
         # Todo: set up masks.
-        return self.xformer.forward(src=src, tgt=target)
-
+        # Dims: xformer.forward takes (batch, in_seq, embed_dim) -> (batch, out_seq, embed_dim)
+        src_embedded = self.embed(src=src)
+        tgt_embedded = self.embed(target)
+        result = self.xformer.forward(src=src_embedded, tgt=tgt_embedded)
+        return self.decode(result)  # TODO(hlane): Decode
 
 
 @dataclass
@@ -78,7 +115,7 @@ class BasicTransformerConfig(BaseConfiguration):
     """Command line arguments for the simple Transformer."""
     learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
     d_model: int = field(default=128, metadata=BaseConfiguration._meta(help='Model internal embedding dimension.'))
-    n_heads: int = field(default=4, metadata=BaseConfiguration._meta(help='Number of attentional heads.'))
+    n_heads: int = field(default=4, metadata=BaseConfiguration._meta(help='Number of attentional heads. Must divide d_model exactly.'))
     n_encoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of encoder layers.'))
     n_decoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of decoder layers.'))
     d_feedfoward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
@@ -142,11 +179,12 @@ class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
         try:
             self.logger.info('Starting BasicTranformer demo app with arguments', **asdict(self.config))
             self.model = HRLBasicTransformer(d_model=self.config.d_model,
-                                            n_heads=self.config.n_heads,
-                                            n_encoder_layers=self.config.n_encoder_layers,
-                                            n_decoder_layers=self.config.n_decoder_layers,
-                                            d_feedforward=self.config.d_feedfoward,
-                                            dtype=self.dtype).to(self.device)
+                                             n_heads=self.config.n_heads,
+                                             n_encoder_layers=self.config.n_encoder_layers,
+                                             n_decoder_layers=self.config.n_decoder_layers,
+                                             d_feedforward=self.config.d_feedfoward,
+                                             vocab_size=self.config.vocab_size,
+                                             dtype=self.dtype).to(self.device)
             self.model.eval()  # We're not training for the moment.
             placeholder_src = torch.ones(self.config.batch_size, self.config.in_seq_length, self.config.d_model)  # batch_size items of len in_seq_len and dim d_model.
             placeholder_target = torch.ones(self.config.batch_size, self.config.out_seq_length, self.config.d_model)  # batch size items of len out_seq_len and dim d_model.
