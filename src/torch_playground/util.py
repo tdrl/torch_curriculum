@@ -55,7 +55,7 @@ class BaseConfiguration:
     @staticmethod
     def _meta(help: str = '', required: bool = False):
         """Helper method to define metadata for dataclass fields."""
-        if help is not '':
+        if help != '':
             help = help + ' '
         return {
             'help': help + '(default: %(default)s)',

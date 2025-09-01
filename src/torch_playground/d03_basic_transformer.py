@@ -22,7 +22,7 @@ class BasicTransformerConfig(BaseConfiguration):
     n_heads: int = field(default=4, metadata=BaseConfiguration._meta(help='Number of attentional heads. Must divide d_model exactly.'))
     n_encoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of encoder layers.'))
     n_decoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of decoder layers.'))
-    d_feedfoward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
+    d_feedforward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
     in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
     out_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
     vocab_size: int = field(default=2048, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens).'))
@@ -93,7 +93,7 @@ class HRLBasicTransformer(nn.Module):
                                    n_heads=config.n_heads,
                                    n_encoder_layers=config.n_encoder_layers,
                                    n_decoder_layers=config.n_encoder_layers,
-                                   d_feedforward=config.d_feedfoward,
+                                   d_feedforward=config.d_feedforward,
                                    vocab_size=config.vocab_size,
                                    dtype=dtype)
 
@@ -111,7 +111,7 @@ class HRLBasicTransformer(nn.Module):
             torch.Tensor: Embedded source tensor of shape (batch_size, seq_length, d_model),
             matching the expected input of the transformer.
         """
-        return self.embedding_mapping[data]
+        return self.embedding_mapping[data.to(dtype=torch.int32)]
 
     def decode(self, src: torch.Tensor) -> torch.Tensor:
         """Decode an embedded vector space into logits over symbols.
@@ -131,9 +131,10 @@ class HRLBasicTransformer(nn.Module):
         # Dims: xformer.forward takes (batch, in_seq, embed_dim) X (batch, out_seq, embed_dim) -> (batch, out_seq, embed_dim)
         src_embedded = self.embed(data=src)
         tgt_embedded = self.embed(data=target)
+        # TODO(hlane) Get masking sorted
         # TODO(hlane) We may want to bias this to something other than a pure coin flip.
-        target_mask = torch.randint_like(tgt_embedded, high=2)
-        result = self.xformer(src=src_embedded, tgt=tgt_embedded, tgt_mask=target_mask)
+        # target_mask = torch.randint_like(tgt_embedded, high=2)
+        result = self.xformer(src=src_embedded, tgt=tgt_embedded)
         return self.decode(result)
 
 
@@ -167,7 +168,15 @@ def sieve(n: int) -> list[bool]:
 
 
 def generate_data(n_points: int, seq_length: int) -> tuple[torch.Tensor, torch.Tensor]:
-    """Toy data generator: Let's try to learn the notion of primality."""
+    """Toy data generator: Let's try to learn the notion of primality.
+
+    Args:
+        n_points (int): Number of sequential numerical sequences to generate.
+        seq_lengths (int): How long each sequential sequence is.
+
+    Returns:
+        tuple[Tensor, Tensor]: (Tensor of numerical sequences (int type), Tensor of "is prime" labels (bool projected to int type))
+    """
     # We want a Toeplitz matrix with ascending integer sequences as rows. This is not
     # a super efficient way to construct it, but as long as the data is small. :shrug:
     input_int_seqs = torch.empty((n_points, seq_length), dtype=torch.int32)
@@ -201,8 +210,10 @@ class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
             self.logger.info('Split full data', full_data_size=len(data), train_size=len(train), test_size=len(test), val_size=len(val))
             for d_part, name in [(train, 'train'), (test, 'test'), (val, 'val')]:
                 (self.work_dir / f'{name}_indices.txt').write_text('\n'.join([str(x) for x in d_part.indices]))
-            model_summary = summary(self.model, input_size=((self.config.batch_size, self.config.in_seq_length),
-                                                            (self.config.batch_size, self.config.out_seq_length)), verbose=0)
+            model_summary = summary(self.model,
+                                    input_data=(data.tensors[0][:self.config.batch_size, :],
+                                                data.tensors[1][:self.config.batch_size, :]),
+                                    verbose=0)
             self.logger.info('Model summary', model=model_summary)
             (self.work_dir / 'model_summary.txt').write_text(str(model_summary))
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
@@ -217,6 +228,7 @@ class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
             self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'trained_model.pt')
             self.logger.info('Application run completed successfully')
         except Exception as e:
+            torch.set_printoptions(precision=2, threshold=7, edgeitems=2, linewidth=60)
             self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)
             raise
 
