@@ -43,6 +43,24 @@ class TestD03BasicTransformer:
                                     True, False, True, False, False,
                                     False]
 
+    def test_generate_data(self):
+        x, y = generate_data(7, 4)
+        assert torch.allclose(x, torch.as_tensor([[0, 1, 2, 3],
+                                                  [1, 2, 3, 4],
+                                                  [2, 3, 4, 5],
+                                                  [3, 4, 5, 6],
+                                                  [4, 5, 6, 7],
+                                                  [5, 6, 7, 8],
+                                                  [6, 7, 8, 9]], dtype=x.dtype))
+        assert torch.allclose(y, torch.as_tensor([[0, 0, 1, 1],
+                                                  [0, 1, 1, 0],
+                                                  [1, 1, 0, 1],
+                                                  [1, 0, 1, 0],
+                                                  [0, 1, 0, 1],
+                                                  [1, 0, 1, 0],
+                                                  [0, 1, 0, 0]], dtype=y.dtype))
+
+
     def test_embedding_matrix_nearly_orthonormal(self):
         config = BasicTransformerConfig(d_model=128, vocab_size=512)
         model = HRLBasicTransformer.from_config(config=config)

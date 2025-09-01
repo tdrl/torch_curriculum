@@ -7,7 +7,7 @@ from torch_playground.util import (
 )
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, random_split
 from torchinfo import summary
 from typing import Optional
 from dataclasses import dataclass, field, asdict
@@ -24,8 +24,9 @@ class BasicTransformerConfig(BaseConfiguration):
     n_decoder_layers: int = field(default=3, metadata=BaseConfiguration._meta(help='Number of decoder layers.'))
     d_feedfoward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
     in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
-    out_seq_length: int = field(default=32, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
+    out_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
     vocab_size: int = field(default=2048, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens).'))
+    n_points: int = field(default=1000, metadata=BaseConfiguration._meta(help='Number of points to synthesize for train/test/val data set.'))
 
 
 class HRLBasicTransformer(nn.Module):
@@ -127,11 +128,12 @@ class HRLBasicTransformer(nn.Module):
 
     def forward(self, src: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Forward pass through the transformer stack."""
-        # Todo: set up masks.
-        # Dims: xformer.forward takes (batch, in_seq, embed_dim) -> (batch, out_seq, embed_dim)
+        # Dims: xformer.forward takes (batch, in_seq, embed_dim) X (batch, out_seq, embed_dim) -> (batch, out_seq, embed_dim)
         src_embedded = self.embed(data=src)
         tgt_embedded = self.embed(data=target)
-        result = self.xformer(src=src_embedded, tgt=tgt_embedded)
+        # TODO(hlane) We may want to bias this to something other than a pure coin flip.
+        target_mask = torch.randint_like(tgt_embedded, high=2)
+        result = self.xformer(src=src_embedded, tgt=tgt_embedded, tgt_mask=target_mask)
         return self.decode(result)
 
 
@@ -164,15 +166,16 @@ def sieve(n: int) -> list[bool]:
     return result
 
 
-def generate_data(n_points: int, in_seq_length: int, out_seq_length: int, dim: int) -> tuple[torch.Tensor, torch.Tensor]:
+def generate_data(n_points: int, seq_length: int) -> tuple[torch.Tensor, torch.Tensor]:
     """Toy data generator: Let's try to learn the notion of primality."""
     # We want a Toeplitz matrix with ascending integer sequences as rows. This is not
     # a super efficient way to construct it, but as long as the data is small. :shrug:
-    input_int_seqs = torch.empty((n_points, in_seq_length))
-    output_int_seqs = torch.empty((n_points, out_seq_length))
-    primes = torch.as_tensor(sieve(n_points + in_seq_length))
+    input_int_seqs = torch.empty((n_points, seq_length), dtype=torch.int32)
+    output_int_seqs = torch.empty((n_points, seq_length), dtype=torch.int32)
+    primes = torch.as_tensor(sieve(n_points + seq_length))
     for i in range(n_points):
-        input_int_seqs[i, :] = torch.as_tensor(range(i, i + in_seq_length))
+        input_int_seqs[i, :] = torch.as_tensor(range(i, i + seq_length))
+        output_int_seqs[i, :] = primes[input_int_seqs[i, :]]
     return input_int_seqs, output_int_seqs
 
 
@@ -189,28 +192,26 @@ class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
         # TODO(heather): This is common boilerplate, should be moved to App.
         try:
             self.logger.info('Starting BasicTranformer demo app with arguments', **asdict(self.config))
-            self.model = HRLBasicTransformer(d_model=self.config.d_model,
-                                             n_heads=self.config.n_heads,
-                                             n_encoder_layers=self.config.n_encoder_layers,
-                                             n_decoder_layers=self.config.n_decoder_layers,
-                                             d_feedforward=self.config.d_feedfoward,
-                                             vocab_size=self.config.vocab_size,
-                                             dtype=self.dtype).to(self.device)
+            self.model = HRLBasicTransformer.from_config(self.config, dtype=self.dtype).to(self.device)
             self.model.eval()  # We're not training for the moment.
-            placeholder_src = torch.ones(self.config.batch_size, self.config.in_seq_length, self.config.d_model)  # batch_size items of len in_seq_len and dim d_model.
-            placeholder_target = torch.ones(self.config.batch_size, self.config.out_seq_length, self.config.d_model)  # batch size items of len out_seq_len and dim d_model.
-            model_summary = summary(self.model, input_size=(placeholder_src.shape, placeholder_target.shape), verbose=0)
+            data = TensorDataset(*generate_data(self.config.n_points, self.config.in_seq_length))
+            save_tensor(data.tensors[0], self.work_dir / 'in_seq_data')
+            save_tensor(data.tensors[1], self.work_dir / 'out_seq_data')
+            train, test, val = random_split(dataset=data, lengths=[0.7, 0.15, 0.15])
+            self.logger.info('Split full data', full_data_size=len(data), train_size=len(train), test_size=len(test), val_size=len(val))
+            for d_part, name in [(train, 'train'), (test, 'test'), (val, 'val')]:
+                (self.work_dir / f'{name}_indices.txt').write_text('\n'.join([str(x) for x in d_part.indices]))
+            model_summary = summary(self.model, input_size=((self.config.batch_size, self.config.in_seq_length),
+                                                            (self.config.batch_size, self.config.out_seq_length)), verbose=0)
             self.logger.info('Model summary', model=model_summary)
             (self.work_dir / 'model_summary.txt').write_text(str(model_summary))
-            return
-            # self.tb_writer.add_graph(self.model, data.tensors[0])
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
-            loss_fn = nn.NLLLoss()
-            data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
-            self.train_model(data=data_loader,
+            loss_fn = nn.CrossEntropyLoss()
+            train_loader = DataLoader(train, batch_size=self.config.batch_size, shuffle=True)
+            # TODO(hlane) Add support for holdout test/val data.
+            self.train_model(data=train_loader,
                              optimizer=optimizer,
-                             loss_fn=loss_fn,
-                             num_epochs=self.config.epochs)
+                             loss_fn=loss_fn)
             with (self.config.output_dir / 'trained_model.pt').open('wb') as f:
                 torch.save(self.model, f)
             self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'trained_model.pt')
