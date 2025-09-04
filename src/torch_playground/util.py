@@ -246,17 +246,20 @@ class App[T: BaseConfiguration, M: torch.nn.Module]:
         running_steps = 0
         for epoch in tqdm.tqdm(range(self.config.epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
-            for batch, (X, y) in tqdm.tqdm(enumerate(data), desc='Batch', leave=False, total=len(data)):
+            for batch_id, batch_data in tqdm.tqdm(enumerate(data), desc='Batch', leave=False, total=len(data)):
                 optimizer.zero_grad()  # Clear gradients
-                predicted = self.model(X)
-                train_loss = loss_fn(predicted, y)
+                predicted = self.model(*batch_data[:-1])
+                for idx, d in enumerate(batch_data):
+                    self.logger.debug('batch data', idx=idx, shape=d.shape)
+                self.logger.debug('predicted', shape=predicted.shape)
+                train_loss = loss_fn(predicted, batch_data[-1])
                 train_loss.backward()
                 optimizer.step()
                 running_loss += train_loss.item()
                 running_steps += 1
-                if self.config.monitor_steps > 0 and batch % self.config.monitor_steps == 0:
-                    global_step = epoch * len(data) + batch
-                    epoch_logger.debug('Batch', batch=batch, global_step=global_step, loss=train_loss.item())
+                if self.config.monitor_steps > 0 and batch_id % self.config.monitor_steps == 0:
+                    global_step = epoch * len(data) + batch_id
+                    epoch_logger.debug('Batch', batch=batch_id, global_step=global_step, loss=train_loss.item())
                     self.tb_writer.add_scalar('train loss',
                                               running_loss / running_steps,
                                               global_step=global_step)

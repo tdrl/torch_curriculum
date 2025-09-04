@@ -167,7 +167,7 @@ def sieve(n: int) -> list[bool]:
     return result
 
 
-def generate_data(n_points: int, seq_length: int) -> tuple[torch.Tensor, torch.Tensor]:
+def generate_data(n_points: int, seq_length: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Toy data generator: Let's try to learn the notion of primality.
 
     Args:
@@ -185,7 +185,7 @@ def generate_data(n_points: int, seq_length: int) -> tuple[torch.Tensor, torch.T
     for i in range(n_points):
         input_int_seqs[i, :] = torch.as_tensor(range(i, i + seq_length))
         output_int_seqs[i, :] = primes[input_int_seqs[i, :]]
-    return input_int_seqs, output_int_seqs
+    return input_int_seqs, output_int_seqs, output_int_seqs.clone()  # Temp experiment
 
 
 class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
@@ -220,6 +220,12 @@ class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
             loss_fn = nn.CrossEntropyLoss()
             train_loader = DataLoader(train, batch_size=self.config.batch_size, shuffle=True)
             # TODO(hlane) Add support for holdout test/val data.
+            # TODO(hlane) Ugh. We can't use the basic train loop as-is b/c the output data needs to
+            # be reshaped to eliminate the batch dimension:
+            #   [batch, seq_len, vocab_size] => [batch * seq_len, vocab_size]
+            # via output.view(-1, vocab_size), before passing to CrossEntropyLoss. But there's no
+            # simple way to do that in this abstracted out training loop w/out a hack or a contortion
+            # or copy/paste rebuilding the loop. Bleh. Sleep on it.
             self.train_model(data=train_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
