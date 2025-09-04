@@ -4,6 +4,7 @@ from torch_playground.util import (
     BaseConfiguration,
     App,
     save_tensor,
+    SequenceCrossEntropyLoss
 )
 import torch
 import torch.nn as nn
@@ -175,7 +176,10 @@ def generate_data(n_points: int, seq_length: int) -> tuple[torch.Tensor, torch.T
         seq_lengths (int): How long each sequential sequence is.
 
     Returns:
-        tuple[Tensor, Tensor]: (Tensor of numerical sequences (int type), Tensor of "is prime" labels (bool projected to int type))
+        tuple[Tensor, Tensor, Tensor]: (Tensor of numerical sequences (int type),
+            Tensor of "is prime" labels (bool projected to int type), Tensor of "is prime" labels
+            (bool projected to long, because CrossEntropyLoss requires categorical results to be
+            long type.))
     """
     # We want a Toeplitz matrix with ascending integer sequences as rows. This is not
     # a super efficient way to construct it, but as long as the data is small. :shrug:
@@ -183,9 +187,9 @@ def generate_data(n_points: int, seq_length: int) -> tuple[torch.Tensor, torch.T
     output_int_seqs = torch.empty((n_points, seq_length), dtype=torch.int32)
     primes = torch.as_tensor(sieve(n_points + seq_length))
     for i in range(n_points):
-        input_int_seqs[i, :] = torch.as_tensor(range(i, i + seq_length))
+        input_int_seqs[i, :] = torch.arange(i, i + seq_length)
         output_int_seqs[i, :] = primes[input_int_seqs[i, :]]
-    return input_int_seqs, output_int_seqs, output_int_seqs.clone()  # Temp experiment
+    return input_int_seqs, output_int_seqs, output_int_seqs.to(dtype=torch.int64)  # Temp experiment
 
 
 class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
@@ -217,21 +221,16 @@ class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
             self.logger.info('Model summary', model=model_summary)
             (self.work_dir / 'model_summary.txt').write_text(str(model_summary))
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
-            loss_fn = nn.CrossEntropyLoss()
+            # loss_fn = nn.CrossEntropyLoss()
+            loss_fn = SequenceCrossEntropyLoss()
             train_loader = DataLoader(train, batch_size=self.config.batch_size, shuffle=True)
             # TODO(hlane) Add support for holdout test/val data.
-            # TODO(hlane) Ugh. We can't use the basic train loop as-is b/c the output data needs to
-            # be reshaped to eliminate the batch dimension:
-            #   [batch, seq_len, vocab_size] => [batch * seq_len, vocab_size]
-            # via output.view(-1, vocab_size), before passing to CrossEntropyLoss. But there's no
-            # simple way to do that in this abstracted out training loop w/out a hack or a contortion
-            # or copy/paste rebuilding the loop. Bleh. Sleep on it.
             self.train_model(data=train_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
-            with (self.config.output_dir / 'trained_model.pt').open('wb') as f:
+            with (self.work_dir / 'trained_model.pt').open('wb') as f:
                 torch.save(self.model, f)
-            self.logger.info('Model trained and saved', model_path=self.config.output_dir / 'trained_model.pt')
+            self.logger.info('Model trained and saved', model_path=self.work_dir / 'trained_model.pt')
             self.logger.info('Application run completed successfully')
         except Exception as e:
             torch.set_printoptions(precision=2, threshold=7, edgeitems=2, linewidth=60)
