@@ -2,6 +2,7 @@ import pytest
 from torch_playground.d01_linear_trainable import LinearTrainableApp
 
 
+@pytest.mark.integration
 class TestIntegrationD01Linear:
 
     def test_full_run(self, tmp_path):

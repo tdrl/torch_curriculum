@@ -55,7 +55,7 @@ class BaseConfiguration:
     @staticmethod
     def _meta(help: str = '', required: bool = False):
         """Helper method to define metadata for dataclass fields."""
-        if help is not '':
+        if help != '':
             help = help + ' '
         return {
             'help': help + '(default: %(default)s)',
@@ -183,6 +183,37 @@ def accuracy(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     assert x.shape == y.shape
     return torch.sum(x == y, dim=0) / x.shape[0]
 
+
+class SequenceCrossEntropyLoss(torch.nn.CrossEntropyLoss):
+    """A version of CrossEntropy loss designed for sequential data.
+
+    The default CrossEntropyLoss in torch is set up for multi-class, single-label classification. That
+    is, it assumes that each instance in your batch is assigned a single category. That's a problem for
+    sequence data, where a single "instance" is a sequence and each step in the sequence receives a
+    category label. This class implements CrossEntropyLoss for data that is naturally sequence shaped.
+
+    Specifically, the expected input to CrossEntropyLoss is of shape [batches, categories], but we have
+    [batches, sequence_len, categories]. The usual answer is to reshape the data into
+    [batches * sequence_len, categories] - i.e., to eliminate the sequence dimension and push it into
+    batches. That's acceptable for a loss that averages over both batches and sequence (and doesn't, say,
+    try to account for temporality within the sequence). This class is a simple wrapper that does that
+    mapping transparently to the caller.
+    """
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Compute CrossEntropy loss for two sequence data tensors.
+
+        Args:
+            input (torch.Tensor): Model prediction. Shape: [batches, sequence_len, n_categories]
+            target (torch.Tensor): Target value. Shape: [batches, n_categories]
+
+        Returns:
+            torch.Tensor: Cross Entropy loss between input and target.
+        """
+        n_categories = input.shape[-1]
+        return super().forward(input.reshape(-1, n_categories), target.reshape(-1))
+
+
 class App[T: BaseConfiguration, M: torch.nn.Module]:
     """Base class for applications.
 
@@ -246,17 +277,20 @@ class App[T: BaseConfiguration, M: torch.nn.Module]:
         running_steps = 0
         for epoch in tqdm.tqdm(range(self.config.epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
-            for batch, (X, y) in tqdm.tqdm(enumerate(data), desc='Batch', leave=False, total=len(data)):
+            for batch_id, batch_data in tqdm.tqdm(enumerate(data), desc='Batch', leave=False, total=len(data)):
                 optimizer.zero_grad()  # Clear gradients
-                predicted = self.model(X)
-                train_loss = loss_fn(predicted, y)
+                predicted = self.model(*batch_data[:-1])
+                for idx, d in enumerate(batch_data):
+                    self.logger.debug('batch data', idx=idx, shape=d.shape)
+                self.logger.debug('predicted', shape=predicted.shape)
+                train_loss = loss_fn(predicted, batch_data[-1])
                 train_loss.backward()
                 optimizer.step()
                 running_loss += train_loss.item()
                 running_steps += 1
-                if self.config.monitor_steps > 0 and batch % self.config.monitor_steps == 0:
-                    global_step = epoch * len(data) + batch
-                    epoch_logger.debug('Batch', batch=batch, global_step=global_step, loss=train_loss.item())
+                if self.config.monitor_steps > 0 and batch_id % self.config.monitor_steps == 0:
+                    global_step = epoch * len(data) + batch_id
+                    epoch_logger.debug('Batch', batch=batch_id, global_step=global_step, loss=train_loss.item())
                     self.tb_writer.add_scalar('train loss',
                                               running_loss / running_steps,
                                               global_step=global_step)

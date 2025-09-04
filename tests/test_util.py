@@ -12,6 +12,7 @@ from torch_playground.util import (
     accuracy,
     App,
     save_tensor,
+    SequenceCrossEntropyLoss
 )
 
 class TestUtil:
@@ -170,3 +171,22 @@ class TestUtil:
         # text to paths.
         actual.output_dir = Path(actual.output_dir)
         assert actual == expected
+
+    @pytest.mark.parametrize(['batches', 'seq_len', 'n_categories'],
+                             [(3, 10, 4), (1, 1, 2), (10, 1, 5), (10, 4, 2), (7, 5, 11)])
+    def test_sequence_cross_entropy_handles_shapes(self, batches, seq_len, n_categories):
+        loss_fn = SequenceCrossEntropyLoss()
+        # Note on test data construction: We want things of the appropriate shape, but not all
+        # zeros or ones. It's also nice to avoid randomness for test stability.
+        # For the input_data, we'll just make every value unique and non-integral
+        # by generating a numerical sequence and dividing it by a constant. For the target_data,
+        # we need each entry to be in the range [0, n_categories) and we don't want the same entry
+        # for each value of the input_data. So we again generate sequences in the range [0, n_categories)
+        # and repeat them appropriately along sequence and batch dimension. The result is that
+        # every pairing of input_data and target_data element should be unique.
+        input_data = torch.arange(batches * seq_len * n_categories, dtype=torch.float32).reshape((batches, seq_len, n_categories)) / seq_len
+        n_reps = seq_len // n_categories + 1
+        target_data = torch.arange(n_categories).tile((batches, n_reps))[:, :seq_len]
+        result = loss_fn(input_data, target_data)
+        assert result.numel() == 1
+        assert result.item() > 0

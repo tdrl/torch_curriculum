@@ -157,7 +157,7 @@ class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
             save_tensor(data.tensors[0], self.work_dir / 'X')
             save_tensor(data.tensors[1], self.work_dir / 'y')
             self.tb_writer.add_embedding(data_generator.means,
-                                         metadata=torch.range(0, self.config.n_classes - 1),
+                                         metadata=torch.arange(0, self.config.n_classes),
                                          global_step=0,
                                          tag='Cluster mean vectors')
             display_count = min(30 * self.config.n_classes, self.config.n_train_samples)

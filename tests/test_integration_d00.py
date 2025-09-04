@@ -3,6 +3,7 @@ from torch_playground.d00_linear_projection import main, Arguments
 from torch_playground.util import setup_logging
 
 
+@pytest.mark.integration
 class TestIntegrationD00Linear:
 
     def test_full_run(self, tmp_path):
