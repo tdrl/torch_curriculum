@@ -10,10 +10,17 @@ from torch_playground.util import (
     BaseConfiguration,
     setup_logging,
     accuracy,
-    App,
+    TrainableModelApp,
     save_tensor,
-    SequenceCrossEntropyLoss
+    SequenceCrossEntropyLoss,
+    BaseApp
 )
+
+class MinimalApp[BaseConfiguration](BaseApp):
+    """A minimal app that implements the run() method as a no-op, for pure testing purposes."""
+    def run(self):
+        pass
+
 
 class TestUtil:
 
@@ -134,8 +141,10 @@ class TestUtil:
         assert torch.allclose(accuracy(x, y), expected_acc)
 
     def test_app_must_be_implemented(self):
-        with pytest.raises(NotImplementedError):
-            app = App(BaseConfiguration(), description='Test failing app', argv=[])
+        with pytest.raises(TypeError):
+            # Deliberately try to violate the ABC barrier - should fail. Pylance recognizes
+            # this as a static error, so disable that check for this test.
+            app = BaseApp(BaseConfiguration(), description='Test failing app', argv=[]) # pyright: ignore[reportAbstractUsage]
             app.run()
 
     def test_save_tensor_simple_tensor(self, tmp_path):
@@ -157,9 +166,9 @@ class TestUtil:
         class LocalConfig(BaseConfiguration):
             foo: int = field(default=7)
             bar: str = field(default='Twas brillig and the slithy toves')
-        app = App(LocalConfig(), description='testing app', argv=['--output_dir', str(tmp_path),
-                                                                  '--foo', '42',
-                                                                  '--bar', 'uuddlrlr'])
+        app = MinimalApp(LocalConfig(), description='testing app', argv=['--output_dir', str(tmp_path),
+                                                                         '--foo', '42',
+                                                                         '--bar', 'uuddlrlr'])
         # Ensures that we're loading from file and not just reconsituting
         # defaults.
         expected = LocalConfig(foo=42, bar='uuddlrlr', output_dir=tmp_path)

@@ -20,13 +20,14 @@ import pprint
 import datetime
 import tqdm
 import json
+from abc import ABC, abstractmethod
 
 __all__ = [
     'setup_logging',
     'fetch_api_keys',
     'BaseConfiguration',
     'parse_cmd_line_args',
-    'App',
+    'TrainableModelApp',
     'save_tensor',
 ]
 
@@ -214,18 +215,26 @@ class SequenceCrossEntropyLoss(torch.nn.CrossEntropyLoss):
         return super().forward(input.reshape(-1, n_categories), target.reshape(-1))
 
 
-class App[T: BaseConfiguration, M: torch.nn.Module]:
-    """Base class for applications.
+class BaseApp[T: BaseConfiguration](ABC):
+    """Root of the App(lication) hierarchy.
 
-    This class provides a common interface for applications, including methods for running the application
-    and setting up logging.
+    This abstract base class for the App hierarchy mostly sets up the
+    baseline operating environment:
+        - Parses command-line args.
+        - Sets up logging and output.
+        - Creates an output directory.
+        - Saves a copy of the config to disk in the output dir.
 
     Type Parameters:
         T: Type of the command line arguments, which must be a subclass of BaseArguments.
-        M: Type of the model, which must be a subclass of torch.nn.Module.
+
+    Arguments:
+        arg_template (T): An instance of type T that will be filled with command-line data.
+        description (str): A program description that will be printed with --help.
+        argv (list[str]): The CLI arguments to the script. Available here as a test
+            injection point.
     """
-    def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
-        self.model: Optional[M] = None
+    def __init__(self, arg_template: T, description: str | None, argv: list[str] | None = None):
         self.config = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
         self.run_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         self.work_dir = self.config.output_dir / self.run_timestamp
@@ -235,6 +244,25 @@ class App[T: BaseConfiguration, M: torch.nn.Module]:
         config_dest = (self.work_dir / 'config.json')
         config_dest.write_text(json.dumps(asdict(self.config), indent=2, default=str))
         self.logger.debug('Saved config', file=str(config_dest))
+
+    @abstractmethod
+    def run(self):
+        raise NotImplementedError('run() method needs to be defined by a concrete subclass')
+
+
+class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
+    """Base class for applications that train models.
+
+    This class provides a common interface for applications, including methods for running the application
+    and setting up logging.
+
+    Type Parameters:
+        T: Type of the command line arguments, which must be a subclass of BaseArguments.
+        M: Type of the model, which must be a subclass of torch.nn.Module.
+    """
+    def __init__(self, arg_template: T, description: str | None, argv: list[str] | None = None):
+        super().__init__(arg_template, description, argv)
+        self.model: Optional[M] = None
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -242,11 +270,6 @@ class App[T: BaseConfiguration, M: torch.nn.Module]:
         torch.manual_seed(self.config.randseed)
         self.logger.debug('Set random seed', randseed=self.config.randseed)
         self.tb_writer = SummaryWriter(log_dir=self.config.output_dir / 'tensorboard' / self.run_timestamp)
-
-    def run(self):
-        """Run the application."""
-        # TODO(heather): Wrap this in a decorator that catches exceptions and logs them.
-        raise NotImplementedError("Subclasses must implement this method.")
 
     def train_model(self,
                     data: DataLoader,

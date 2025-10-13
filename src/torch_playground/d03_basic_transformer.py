@@ -2,7 +2,7 @@
 
 from torch_playground.util import (
     BaseConfiguration,
-    App,
+    TrainableModelApp,
     save_tensor,
     SequenceCrossEntropyLoss
 )
@@ -192,7 +192,7 @@ def generate_data(n_points: int, seq_length: int) -> tuple[torch.Tensor, torch.T
     return input_int_seqs, output_int_seqs, output_int_seqs.to(dtype=torch.int64)  # Temp experiment
 
 
-class BasicTransformerApp(App[BasicTransformerConfig, HRLBasicTransformer]):
+class BasicTransformerApp(TrainableModelApp[BasicTransformerConfig, HRLBasicTransformer]):
     """An application that trains a simple linear model."""
 
     def __init__(self, argv: Optional[list[str]] = None):

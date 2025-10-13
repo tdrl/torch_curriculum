@@ -2,7 +2,7 @@
 
 from torch_playground.util import (
     BaseConfiguration,
-    App,
+    TrainableModelApp,
     save_tensor,
     get_default_working_dir,
     accuracy
@@ -116,7 +116,7 @@ class MultilayerArguments(BaseConfiguration):
     learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
 
 
-class LinearTrainableApp(App[MultilayerArguments, HRLinearMultilayer]):
+class LinearTrainableApp(TrainableModelApp[MultilayerArguments, HRLinearMultilayer]):
     """An application that trains a simple linear model."""
 
     def __init__(self, argv: Optional[list[str]] = None):
