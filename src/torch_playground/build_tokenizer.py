@@ -17,6 +17,13 @@ class TokenizerConfig(BaseConfiguration):
 
 
 class UniqueIdFactory:
+    """Facory object to generate unique, sequential IDs.
+
+    Every time you invoke an instance of this class (via call), you'll get back a unique ID.
+
+    Arguments:
+        init_id (int): Starting value for ID sequence.
+    """
     def __init__(self, init_id: int = 0) -> None:
         self.id = init_id
 
@@ -27,6 +34,13 @@ class UniqueIdFactory:
 
 
 class FileDataset(IterableDataset):
+    """Small wrapper class to make a PyTorch IterableDataset from a single file.
+
+    This is intended to be simple, not high performance.
+
+    Args:
+        data_file (Path): File to draw from.
+    """
     def __init__(self, data_file: Path) -> None:
         super().__init__()
         self.data_file = data_file
@@ -37,17 +51,21 @@ class FileDataset(IterableDataset):
 
 
 class BuildTokenizerApp(BaseApp[TokenizerConfig]):
-    """An application that creates a tokenizer and saves its dict."""
+    """An application that creates a tokenizer and saves its dict.
+
+    This reads data from the file given in the config.data_file and writes the resulting token
+    mapping dict to config.output_dir / token_dict.n={self.config.ngram_len}.json."""
 
     def run(self):
-        # with self.config.data_file.open('rt', encoding='utf-8', buffering=(1 << 20)) as data_handle:
         data = DataLoader(dataset=FileDataset(self.config.data_file), batch_size=self.config.batch_size)
         tokenizer = dict()
         id_factory = UniqueIdFactory()
+        unknown_token = f'<UNKNOWN:{"_" * self.config.ngram_len}>'  # Guaranteed never to be an n-gram.
+        tokenizer[unknown_token] = id_factory()
         for batch in data:
             for row in batch:
                 row = row.strip()
-                for i in range(len(row) - self.config.ngram_len + 1):
+                for i in range(max(len(row) - self.config.ngram_len + 1, 1)):
                     gram = row[i:(i + self.config.ngram_len)]
                     if gram not in tokenizer:
                         tokenizer[gram] = id_factory()
