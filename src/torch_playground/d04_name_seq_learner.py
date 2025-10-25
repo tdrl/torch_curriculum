@@ -13,6 +13,7 @@ from torchinfo import summary
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+import json
 
 
 @dataclass
@@ -29,6 +30,8 @@ class NameSeqLearnerConfig(BaseConfiguration):
     in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
     out_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
     vocab_size: int = field(default=2048, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens).'))
+    tokenizer_dict_file: Path = field(default=Path('/dev/null'),
+                                      metadata=BaseConfiguration._meta(help='JSON file containing <token>:<id> mappings.'))
 
 
 class NameSeqTransformer(nn.Module):
@@ -73,6 +76,8 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
         super().__init__(NameSeqLearnerConfig(),
                          'Train a Transformer model to generate human names.',
                          argv=argv)
+        self.tokenizer_dict: dict[str, int] = json.loads(self.config.tokenizer_dict_file.read_text())
+        self.logger.info('Loaded token dictionary', n_tokens=len(self.tokenizer_dict))
         self.model: NameSeqTransformer | None = None
 
     def run(self):

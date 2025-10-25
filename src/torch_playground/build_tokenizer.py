@@ -2,6 +2,7 @@
 
 from typing import Iterator
 from torch_playground.util import BaseConfiguration, BaseApp
+from torch_playground.tokenizer import NGramTokenizer
 from dataclasses import dataclass, field
 from pathlib import Path
 from torch.utils.data import DataLoader, IterableDataset
@@ -14,23 +15,6 @@ class TokenizerConfig(BaseConfiguration):
                                                              required=True))
     ngram_len: int = field(default=1,
                            metadata=BaseConfiguration._meta(help='Length of ngrams, in characters, to tokenize.'))
-
-
-class UniqueIdFactory:
-    """Facory object to generate unique, sequential IDs.
-
-    Every time you invoke an instance of this class (via call), you'll get back a unique ID.
-
-    Arguments:
-        init_id (int): Starting value for ID sequence.
-    """
-    def __init__(self, init_id: int = 0) -> None:
-        self.id = init_id
-
-    def __call__(self) -> int:
-        result = self.id
-        self.id += 1
-        return result
 
 
 class FileDataset(IterableDataset):
@@ -58,21 +42,17 @@ class BuildTokenizerApp(BaseApp[TokenizerConfig]):
 
     def run(self):
         data = DataLoader(dataset=FileDataset(self.config.data_file), batch_size=self.config.batch_size)
-        tokenizer = dict()
-        id_factory = UniqueIdFactory()
+        tokenizer = NGramTokenizer(self.config.ngram_len)
         unknown_token = f'<UNKNOWN:{"_" * self.config.ngram_len}>'  # Guaranteed never to be an n-gram.
-        tokenizer[unknown_token] = id_factory()
+        tokenizer.add_single_token(unknown_token, validate_token_length=False)
         for batch in data:
             for row in batch:
                 row = row.strip()
-                for i in range(max(len(row) - self.config.ngram_len + 1, 1)):
-                    gram = row[i:(i + self.config.ngram_len)]
-                    if gram not in tokenizer:
-                        tokenizer[gram] = id_factory()
-        self.logger.info('Finished tokenizing', n_tokens=len(tokenizer))
-        dict_file = (self.config.output_dir / f'token_dict.n={self.config.ngram_len}.json')
-        dict_file.write_text(json.dumps(tokenizer, indent=2))
-        self.logger.info('Token dict location', dict_file=str(dict_file))
+                tokenizer.add_to_token_dict(row)
+        self.logger.info('Finished tokenizing', n_tokens=tokenizer.vocab_size())
+        tokenizer_file = (self.config.output_dir / f'token_dict.n={self.config.ngram_len}.json')
+        tokenizer.to_file(tokenizer_file)
+        self.logger.info('Wrote tokenizer state file', tokenizer_file=str(tokenizer_file))
 
 
 def main(argv: list[str] | None = None):
