@@ -85,9 +85,8 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
             self.logger.info('Starting NameSeqLearner app with arguments', **asdict(self.config))
             self.model = NameSeqTransformer.from_config(self.config, dtype=self.dtype).to(self.device)
             self.model.eval()  # We're not training for the moment.
+            data =
             data = TensorDataset(*generate_data(self.config.n_points, self.config.in_seq_length))
-            save_tensor(data.tensors[0], self.work_dir / 'in_seq_data')
-            save_tensor(data.tensors[1], self.work_dir / 'out_seq_data')
             train, test, val = random_split(dataset=data, lengths=[0.7, 0.15, 0.15])
             self.logger.info('Split full data', full_data_size=len(data), train_size=len(train), test_size=len(test), val_size=len(val))
             for d_part, name in [(train, 'train'), (test, 'test'), (val, 'val')]:

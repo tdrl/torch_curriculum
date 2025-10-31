@@ -1,12 +1,10 @@
 """Parameterize a tokenizer from a fixed data file."""
 
-from typing import Iterator
-from torch_playground.util import BaseConfiguration, BaseApp
+from torch_playground.util import BaseConfiguration, BaseApp, FileDataset
 from torch_playground.tokenizer import NGramTokenizer
 from dataclasses import dataclass, field
 from pathlib import Path
-from torch.utils.data import DataLoader, IterableDataset
-import json
+from torch.utils.data import DataLoader
 
 @dataclass
 class TokenizerConfig(BaseConfiguration):
@@ -15,23 +13,6 @@ class TokenizerConfig(BaseConfiguration):
                                                              required=True))
     ngram_len: int = field(default=1,
                            metadata=BaseConfiguration._meta(help='Length of ngrams, in characters, to tokenize.'))
-
-
-class FileDataset(IterableDataset):
-    """Small wrapper class to make a PyTorch IterableDataset from a single file.
-
-    This is intended to be simple, not high performance.
-
-    Args:
-        data_file (Path): File to draw from.
-    """
-    def __init__(self, data_file: Path) -> None:
-        super().__init__()
-        self.data_file = data_file
-        self.data_handle = data_file.open('rt', encoding='utf-8', buffering=(1 << 20))
-
-    def __iter__(self) -> Iterator:
-        return self.data_handle
 
 
 class BuildTokenizerApp(BaseApp[TokenizerConfig]):

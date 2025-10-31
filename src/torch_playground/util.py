@@ -14,8 +14,9 @@ import os
 import sys
 from pathlib import Path
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 from torch.utils.tensorboard.writer import SummaryWriter
+from typing import Iterator
 import pprint
 import datetime
 import tqdm
@@ -29,6 +30,7 @@ __all__ = [
     'parse_cmd_line_args',
     'TrainableModelApp',
     'save_tensor',
+    'FileDataset',
 ]
 
 
@@ -333,3 +335,20 @@ def save_tensor(tensor: torch.Tensor, path: Path):
     torch.save(tensor, path.with_suffix('.pt'))
     with open(path.with_suffix('.txt'), 'w') as f:
         f.write(pprint.pformat(tensor.tolist(), indent=2, width=80))
+
+
+class FileDataset(IterableDataset):
+    """Small wrapper class to make a PyTorch IterableDataset from a single file.
+
+    This is intended to be simple, not high performance.
+
+    Args:
+        data_file (Path): File to draw from.
+    """
+    def __init__(self, data_file: Path) -> None:
+        super().__init__()
+        self.data_file = data_file
+        self.data_handle = data_file.open('rt', encoding='utf-8', buffering=(1 << 20))
+
+    def __iter__(self) -> Iterator:
+        return self.data_handle
