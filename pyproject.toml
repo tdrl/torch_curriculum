@@ -20,6 +20,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "pytest-cov>=4.1.0",
     "flake8>=7.3.0",
+    "torchvision>=0.17.2",
+    "segment-anything",
 ]
 
 [build-system]
@@ -50,3 +52,6 @@ exclude_lines = [
 
 [tool.flake8]
 max-line-length = 120
+
+[tool.uv.sources]
+segment-anything = { git = "https://github.com/facebookresearch/segment-anything.git" }
