@@ -22,6 +22,8 @@ import datetime
 import tqdm
 import json
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+import numpy as np
 
 __all__ = [
     'setup_logging',
@@ -33,6 +35,8 @@ __all__ = [
     'FileDataset',
 ]
 
+type NumberType = int | float
+type TensorLike = list[NumberType] | torch.Tensor | np.array
 
 def get_default_working_dir() -> Path:
     """Get the default working directory based on the current script name."""
@@ -340,7 +344,8 @@ def save_tensor(tensor: torch.Tensor, path: Path):
 class FileDataset(IterableDataset):
     """Small wrapper class to make a PyTorch IterableDataset from a single file.
 
-    This is intended to be simple, not high performance.
+    This is intended to be simple, not high performance. By default it yields strings
+    (lines) from the file, but transforms can be added to convert these to other types.
 
     Args:
         data_file (Path): File to draw from.
@@ -349,6 +354,33 @@ class FileDataset(IterableDataset):
         super().__init__()
         self.data_file = data_file
         self.data_handle = data_file.open('rt', encoding='utf-8', buffering=(1 << 20))
+        self.transforms: list[Callable] = []
 
     def __iter__(self) -> Iterator:
-        return self.data_handle
+        base_iterator = self.data_handle
+        if not self.transforms:
+            return base_iterator
+
+        def transform_item(item: str):
+            result = item
+            for transform in self.transforms:
+                result = transform(result)
+            return result
+
+        return map(transform_item, base_iterator)
+
+    def with_transform(self, xform: Callable) -> 'FileDataset':
+        """Add a transform to be applied to each item from the dataset.
+
+        Args:
+            xform: A function that takes either a string (for the first transform)
+                  or the output type of the previous transform, and returns any type.
+                  The first transform in the chain must accept a string input (since
+                  that's what the file produces), but subsequent transforms can work
+                  with any input/output types as long as they form a valid chain.
+
+        Returns:
+            self: For method chaining
+        """
+        self.transforms.append(xform)
+        return self

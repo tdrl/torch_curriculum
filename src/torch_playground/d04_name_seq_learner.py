@@ -4,7 +4,8 @@ from torch_playground.util import (
     BaseConfiguration,
     TrainableModelApp,
     save_tensor,
-    SequenceCrossEntropyLoss
+    SequenceCrossEntropyLoss,
+    FileDataset,
 )
 import torch
 import torch.nn as nn

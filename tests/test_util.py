@@ -13,7 +13,8 @@ from torch_playground.util import (
     TrainableModelApp,
     save_tensor,
     SequenceCrossEntropyLoss,
-    BaseApp
+    BaseApp,
+    FileDataset
 )
 
 class MinimalApp[BaseConfiguration](BaseApp):
@@ -146,6 +147,85 @@ class TestUtil:
             # this as a static error, so disable that check for this test.
             app = BaseApp(BaseConfiguration(), description='Test failing app', argv=[]) # pyright: ignore[reportAbstractUsage]
             app.run()
+
+    def test_file_dataset_basic_iteration(self, tmp_path):
+        """Test that FileDataset correctly iterates over file contents without transforms."""
+        test_file = tmp_path / "test.txt"
+        test_content = "line1\nline2\nline3\n"
+        test_file.write_text(test_content)
+
+        dataset = FileDataset(test_file)
+        lines = list(dataset)
+        assert lines == ["line1\n", "line2\n", "line3\n"]
+
+    def test_file_dataset_single_transform(self, tmp_path):
+        """Test that FileDataset correctly applies a single transform."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("1\n2\n3\n")
+
+        dataset = FileDataset(test_file)
+        def to_int(x: str) -> int:
+            return int(x.strip())
+        dataset.with_transform(to_int)
+        numbers = list(dataset)
+        assert numbers == [1, 2, 3]
+
+    def test_file_dataset_multiple_transforms(self, tmp_path):
+        """Test that FileDataset correctly composes multiple transforms."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("1\n2\n3\n")
+
+        dataset = FileDataset(test_file)
+        def to_int(x: str) -> int:
+            return int(x.strip())
+        def double(x: int) -> int:
+            return x * 2
+        def format_num(x: int) -> str:
+            return f"Number: {x}"
+
+        dataset.with_transform(to_int)        # string -> int
+        dataset.with_transform(double)        # int -> int*2
+        dataset.with_transform(format_num)    # int -> formatted string
+
+        results = list(dataset)
+        assert results == ["Number: 2", "Number: 4", "Number: 6"]
+
+    def test_file_dataset_transform_order(self, tmp_path):
+        """Test that transforms are applied in the correct order (first to last)."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("5\n")
+
+        dataset = FileDataset(test_file)
+        def to_int(x: str) -> int:
+            return int(x.strip())
+        def add_three(x: int) -> int:
+            return x + 3
+        def to_str(x: int) -> str:
+            return str(x)
+        def wrap_parens(x: str) -> str:
+            return f"({x})"
+
+        # These transforms should be applied in order. If applied in reverse order,
+        # we would get a different result
+        dataset.with_transform(to_int)       # "5\n" -> 5
+        dataset.with_transform(add_three)    # 5 -> 8
+        dataset.with_transform(to_str)       # 8 -> "8"
+        dataset.with_transform(wrap_parens)  # "8" -> "(8)"
+
+        result = next(iter(dataset))
+        assert result == "(8)"  # If transforms were applied in reverse order, we would get "(5)3"
+
+    def test_file_dataset_chaining(self, tmp_path):
+        """Test that with_transform method supports method chaining."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("test\n")
+
+        dataset = FileDataset(test_file)
+        def strip_text(x: str) -> str:
+            return x.strip()
+        # Should return self for chaining
+        result = dataset.with_transform(strip_text)
+        assert result is dataset
 
     def test_save_tensor_simple_tensor(self, tmp_path):
         out_data = torch.as_tensor([1., 2., 3.])
