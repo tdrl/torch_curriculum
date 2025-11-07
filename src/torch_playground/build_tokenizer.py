@@ -16,19 +16,19 @@ class TokenizerConfig(BaseConfiguration):
 
 
 class BuildTokenizerApp(BaseApp[TokenizerConfig]):
-    """An application that creates a tokenizer and saves its dict.
+    """An application that creates a tokenizer and saves its model.
 
     This reads data from the file given in the config.data_file and writes the resulting token
-    mapping dict to config.output_dir / token_dict.n={self.config.ngram_len}.json."""
+    mapping model to config.output_dir / token_dict.n={self.config.ngram_len}.json."""
 
     def run(self):
-        data = DataLoader(dataset=FileDataset(self.config.data_file), batch_size=self.config.batch_size)
+        data = DataLoader(dataset=FileDataset(self.config.data_file).with_transform(lambda x: x.strip()),
+                          batch_size=self.config.batch_size)
         tokenizer = NGramTokenizer(self.config.ngram_len)
         unknown_token = f'<UNKNOWN:{"_" * self.config.ngram_len}>'  # Guaranteed never to be an n-gram.
         tokenizer.add_single_token(unknown_token, validate_token_length=False)
         for batch in data:
             for row in batch:
-                row = row.strip()
                 tokenizer.add_to_token_dict(row)
         self.logger.info('Finished tokenizing', n_tokens=tokenizer.vocab_size())
         tokenizer_file = (self.config.output_dir / f'token_dict.n={self.config.ngram_len}.json')

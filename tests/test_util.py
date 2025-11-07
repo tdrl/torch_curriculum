@@ -183,9 +183,9 @@ class TestUtil:
         def format_num(x: int) -> str:
             return f"Number: {x}"
 
-        dataset.with_transform(to_int)        # string -> int
-        dataset.with_transform(double)        # int -> int*2
-        dataset.with_transform(format_num)    # int -> formatted string
+        (dataset.with_transform(to_int)        # string -> int
+                .with_transform(double)        # int -> int*2
+                .with_transform(format_num))    # int -> formatted string
 
         results = list(dataset)
         assert results == ["Number: 2", "Number: 4", "Number: 6"]

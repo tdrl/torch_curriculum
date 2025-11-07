@@ -14,7 +14,7 @@ from torchinfo import summary
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-import json
+from torch_playground.tokenizer import NGramTokenizer
 
 
 @dataclass
@@ -31,8 +31,10 @@ class NameSeqLearnerConfig(BaseConfiguration):
     in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
     out_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
     vocab_size: int = field(default=2048, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens).'))
-    tokenizer_dict_file: Path = field(default=Path('/dev/null'),
-                                      metadata=BaseConfiguration._meta(help='JSON file containing <token>:<id> mappings.'))
+    tokenizer_file: Path = field(default=Path('/dev/null'),
+                                 metadata=BaseConfiguration._meta(help='JSON file containing tokenizer state.'))
+    learning_rate: float = field(default=0.01,
+                                 metadata=BaseConfiguration._meta(help='SGD learning rate.'))
 
 
 class NameSeqTransformer(nn.Module):
@@ -77,8 +79,8 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
         super().__init__(NameSeqLearnerConfig(),
                          'Train a Transformer model to generate human names.',
                          argv=argv)
-        self.tokenizer_dict: dict[str, int] = json.loads(self.config.tokenizer_dict_file.read_text())
-        self.logger.info('Loaded token dictionary', n_tokens=len(self.tokenizer_dict))
+        self.tokenizer = NGramTokenizer.from_file(self.config.tokenizer_file)
+        self.logger.info('Loaded tokenizer', n_tokens=self.tokenizer.vocab_size())
         self.model: NameSeqTransformer | None = None
 
     def run(self):
@@ -86,20 +88,15 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
             self.logger.info('Starting NameSeqLearner app with arguments', **asdict(self.config))
             self.model = NameSeqTransformer.from_config(self.config, dtype=self.dtype).to(self.device)
             self.model.eval()  # We're not training for the moment.
-            data =
-            data = TensorDataset(*generate_data(self.config.n_points, self.config.in_seq_length))
-            train, test, val = random_split(dataset=data, lengths=[0.7, 0.15, 0.15])
-            self.logger.info('Split full data', full_data_size=len(data), train_size=len(train), test_size=len(test), val_size=len(val))
+            full_data = FileDataset(self.config.names_file).with_transform(lambda x: x.strip()).with_transform(self.tokenizer.tokenize)
+            train, test, val = random_split(dataset=full_data, lengths=[0.7, 0.15, 0.15])
+            self.logger.info('Split full data', train_size=len(train), test_size=len(test), val_size=len(val))
             for d_part, name in [(train, 'train'), (test, 'test'), (val, 'val')]:
                 (self.work_dir / f'{name}_indices.txt').write_text('\n'.join([str(x) for x in d_part.indices]))
-            model_summary = summary(self.model,
-                                    input_data=(data.tensors[0][:self.config.batch_size, :],
-                                                data.tensors[1][:self.config.batch_size, :]),
-                                    verbose=0)
+            model_summary = summary(self.model, verbose=0)
             self.logger.info('Model summary', model=model_summary)
             (self.work_dir / 'model_summary.txt').write_text(str(model_summary))
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
-            # loss_fn = nn.CrossEntropyLoss()
             loss_fn = SequenceCrossEntropyLoss()
             train_loader = DataLoader(train, batch_size=self.config.batch_size, shuffle=True)
             # TODO(hlane) Add support for holdout test/val data.
