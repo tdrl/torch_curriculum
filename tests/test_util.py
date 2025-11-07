@@ -17,6 +17,7 @@ from torch_playground.util import (
     BaseApp,
     FileDataset,
     TransformableMixin,
+    InMemoryFileDataset,
 )
 
 
@@ -339,6 +340,32 @@ class TestUtil:
         assert len(result) == 1000, 'Should process all lines'
         assert result[:3] == [0, 2, 4], 'First three items should be transformed correctly'
         assert result[-3:] == [1994, 1996, 1998], 'Last three items should be transformed correctly'
+
+    def test_in_memory_file_dataset_empty(self, tmp_path: Path):
+        data_file = tmp_path / 'test_data.txt'
+        data_file.write_text('')
+        data = InMemoryFileDataset(data_file=data_file)
+        assert len(data) == 0
+
+    def test_in_memory_file_dataset_singleton(self, tmp_path: Path):
+        data_file = tmp_path / 'test_data.txt'
+        data_file.write_text('1\n')
+        data = InMemoryFileDataset(data_file=data_file)
+        # Call with_transform on the dataset but don't reassign the result so the
+        # variable keeps the concrete InMemoryFileDataset type (which implements __len__).
+        data.with_transform(str.strip).with_transform(int)
+        assert len(data) == 1
+        assert data[0] == 1
+
+    def test_in_memory_file_dataset_multiple(self, tmp_path: Path):
+        data_file = tmp_path / 'test_data.txt'
+        data_file.write_text('1\n2\n3\n4\n5\n')
+        data = InMemoryFileDataset(data_file=data_file)
+        data.with_transform(str.strip).with_transform(int)
+        for i in range(5):
+            assert data[i] == i + 1
+        assert len(data) == 5
+        assert list(data) == [1, 2, 3, 4, 5]
 
     def test_save_tensor_simple_tensor(self, tmp_path: Path):
         out_data = torch.as_tensor([1., 2., 3.])

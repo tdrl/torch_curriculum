@@ -2,9 +2,6 @@
 
 import keyring  # Accessing API keys securely from Apple Keychain or Windows Credential Store.
 import structlog
-from structlog.processors import TimeStamper, StackInfoRenderer, UnicodeDecoder
-from structlog.dev import ConsoleRenderer, RichTracebackFormatter, RED, GREEN, BLUE, MAGENTA, YELLOW, CYAN, RED_BACK, BRIGHT
-from structlog.stdlib import add_log_level, PositionalArgumentsFormatter
 import logging
 import logging.config
 from dataclasses import dataclass, fields, field, asdict
@@ -14,9 +11,9 @@ import os
 import sys
 from pathlib import Path
 import torch
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import DataLoader, IterableDataset, Dataset
 from torch.utils.tensorboard.writer import SummaryWriter
-from typing import Iterator
+from typing import Iterator, Sized, Iterable
 import pprint
 import datetime
 import tqdm
@@ -395,10 +392,44 @@ class FileDataset(TransformableMixin, IterableDataset):
     Args:
         data_file (Path): File to draw from.
     """
-    def __init__(self, data_file: Path) -> None:
+    def __init__(self, data_file: Path, mode='rt', encoding='utf-8') -> None:
         super().__init__()
         self.data_file = data_file
-        self.data_handle = data_file.open('rt', encoding='utf-8', buffering=(1 << 20))
+        self.data_handle = data_file.open(mode, encoding=encoding, buffering=(1 << 20))
 
     def __iter__(self) -> Iterator:
         return self._apply_transforms(self.data_handle)
+
+
+class InMemoryFileDataset(Sized, Iterable, TransformableMixin, Dataset):
+    """A Dataset backed by a file, but buffered entierely into memory for random access.
+
+    Warning: Only use this with modest-sized data files (say, 100s of Mb).
+    """
+
+    def __init__(self, data_file: Path, mode='rt', encoding='utf-8') -> None:
+        super().__init__()
+        self.mode = mode
+        self.encoding = encoding
+        self.data_file = data_file
+        self.data_cache = []
+        self.cache_filled = False
+
+    def _cache_data(self):
+        if self.cache_filled:
+            return
+        with self.data_file.open(self.mode, encoding=self.encoding) as d_in:
+            self.data_cache = list(self._apply_transforms(d_in))
+        self.cache_filled = True
+
+    def __getitem__(self, index):
+        self._cache_data()
+        return self.data_cache[index]
+
+    def __len__(self) -> int:
+        self._cache_data()
+        return len(self.data_cache)
+
+    def __iter__(self) -> Iterator:
+        self._cache_data()
+        return iter(self.data_cache)
