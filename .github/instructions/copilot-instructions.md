@@ -53,6 +53,14 @@ Follow these conventions for all Python files in the torch_playground codebase:
        )
    ```
 
+6. **File layout style**
+  - Put two blank lines between top-level classes or standalone methods in a module.
+  - Put two blank lines following imports block.
+  - Put two blank lines following any block of module-level constants or types.
+  - Put one blank line between methods within a class.
+  - Alphabetize imports by module name.
+  - End the file with a newline.
+
 ## Error Handling & Logging
 
 1. **Logging**

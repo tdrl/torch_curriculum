@@ -4,6 +4,7 @@ import pytest
 import torch
 import re
 import json
+from typing import Iterator
 
 from torch_playground.util import (
     parse_cmd_line_args,
@@ -14,13 +15,31 @@ from torch_playground.util import (
     save_tensor,
     SequenceCrossEntropyLoss,
     BaseApp,
-    FileDataset
+    FileDataset,
+    TransformableMixin,
 )
+
 
 class MinimalApp[BaseConfiguration](BaseApp):
     """A minimal app that implements the run() method as a no-op, for pure testing purposes."""
     def run(self):
         pass
+
+
+class SimpleIterator:
+    """A simple iterator class for testing the TransformableMixin."""
+    def __init__(self, data: list):
+        self.data = data
+
+    def __iter__(self) -> Iterator:
+        return self._apply_transforms(iter(self.data)) if hasattr(self, '_apply_transforms') else iter(self.data)
+
+
+class TransformableIterator(TransformableMixin, SimpleIterator):
+    """Test class that combines TransformableMixin with a simple iterator."""
+    def __init__(self, data: list):
+        TransformableMixin.__init__(self)
+        SimpleIterator.__init__(self, data)
 
 
 class TestUtil:
@@ -148,7 +167,7 @@ class TestUtil:
             app = BaseApp(BaseConfiguration(), description='Test failing app', argv=[]) # pyright: ignore[reportAbstractUsage]
             app.run()
 
-    def test_file_dataset_basic_iteration(self, tmp_path):
+    def test_file_dataset_basic_iteration(self, tmp_path: Path):
         """Test that FileDataset correctly iterates over file contents without transforms."""
         test_file = tmp_path / "test.txt"
         test_content = "line1\nline2\nline3\n"
@@ -158,7 +177,7 @@ class TestUtil:
         lines = list(dataset)
         assert lines == ["line1\n", "line2\n", "line3\n"]
 
-    def test_file_dataset_single_transform(self, tmp_path):
+    def test_file_dataset_single_transform(self, tmp_path: Path):
         """Test that FileDataset correctly applies a single transform."""
         test_file = tmp_path / "test.txt"
         test_file.write_text("1\n2\n3\n")
@@ -170,7 +189,7 @@ class TestUtil:
         numbers = list(dataset)
         assert numbers == [1, 2, 3]
 
-    def test_file_dataset_multiple_transforms(self, tmp_path):
+    def test_file_dataset_multiple_transforms(self, tmp_path: Path):
         """Test that FileDataset correctly composes multiple transforms."""
         test_file = tmp_path / "test.txt"
         test_file.write_text("1\n2\n3\n")
@@ -190,7 +209,7 @@ class TestUtil:
         results = list(dataset)
         assert results == ["Number: 2", "Number: 4", "Number: 6"]
 
-    def test_file_dataset_transform_order(self, tmp_path):
+    def test_file_dataset_transform_order(self, tmp_path: Path):
         """Test that transforms are applied in the correct order (first to last)."""
         test_file = tmp_path / "test.txt"
         test_file.write_text("5\n")
@@ -215,7 +234,7 @@ class TestUtil:
         result = next(iter(dataset))
         assert result == "(8)"  # If transforms were applied in reverse order, we would get "(5)3"
 
-    def test_file_dataset_chaining(self, tmp_path):
+    def test_file_dataset_chaining(self, tmp_path: Path):
         """Test that with_transform method supports method chaining."""
         test_file = tmp_path / "test.txt"
         test_file.write_text("test\n")
@@ -227,7 +246,104 @@ class TestUtil:
         result = dataset.with_transform(strip_text)
         assert result is dataset
 
-    def test_save_tensor_simple_tensor(self, tmp_path):
+    def test_transformable_mixin_basic(self):
+        """Test basic transform operations on a simple iterator."""
+        # Setup
+        data = ['1', '2', '3']
+        iterator = TransformableIterator(data)
+
+        # Test no transforms
+        result = list(iterator)
+        assert result == data, 'Iterator should return original data when no transforms are applied'
+
+        # Test single transform
+        iterator = TransformableIterator(data)
+        iterator.with_transform(int)
+        result = list(iterator)
+        assert result == [1, 2, 3], 'Single transform should convert strings to integers'
+
+        # Test transform chain
+        iterator = TransformableIterator(data)
+        iterator.with_transform(int).with_transform(lambda x: x * 2)
+        result = list(iterator)
+        assert result == [2, 4, 6], 'Transform chain should apply transforms in order'
+
+    def test_transform_empty_data(self):
+        """Test transforms on empty data."""
+        iterator = TransformableIterator([])
+        iterator.with_transform(int)
+        result = list(iterator)
+        assert result == [], 'Empty iterator should remain empty after transforms'
+
+    def test_transform_invalid_input(self):
+        """Test transform chain with invalid input."""
+        data = ['1', 'a', '3']
+        iterator = TransformableIterator(data)
+        iterator.with_transform(int)
+        with pytest.raises(ValueError):
+            list(iterator)
+
+    def test_file_dataset_with_transforms(self, tmp_path: Path):
+        """Test transforms with FileDataset."""
+        # Create a temporary file with test data
+        test_file = tmp_path / 'test.txt'
+        test_file.write_text('1\n2\n3\n')
+
+        # Test transforming lines to integers
+        dataset = FileDataset(test_file)
+        # First strip the newline from each line, then convert to int
+        dataset.with_transform(str.strip).with_transform(int)
+        result = list(dataset)
+        assert result == [1, 2, 3], 'Should convert file lines to integers'
+
+    def test_transform_method_chaining(self):
+        """Test that transform method chaining works correctly."""
+        data = ['1', '2', '3']
+        iterator = TransformableIterator(data)
+
+        # Test that with_transform returns self
+        assert iterator.with_transform(int) is iterator, 'with_transform should return self'
+
+        # Add transforms via chaining
+        iterator.with_transform(lambda x: x * 2).with_transform(lambda x: f"Number: {x}")
+
+        # Now test the result
+        result = list(iterator)
+        assert result == ['Number: 2', 'Number: 4', 'Number: 6'], 'Chained transforms should work'
+
+    def test_transform_complex_types(self):
+        """Test transforms with more complex data types and transformations."""
+        data = ['{"a": 1}', '{"b": 2}', '{"c": 3}']
+        iterator = TransformableIterator(data)
+
+        import json
+        def extract_value(d: dict) -> int:
+            return list(d.values())[0]
+
+        iterator.with_transform(json.loads).with_transform(extract_value)
+        result = list(iterator)
+        assert result == [1, 2, 3], 'Should handle complex transforms with multiple types'
+
+    def test_file_dataset_large_file(self, tmp_path: Path):
+        """Test FileDataset with transforms on a larger file."""
+        # Create a temporary file with more test data
+        test_file = tmp_path / 'large.txt'
+        test_file.write_text('\n'.join([str(x) for x in range(1000)]))
+        # with test_file.open('w') as f:
+        #     for i in range(1000):
+        #         f.write(f'{i}\n')
+
+        # Test processing with transforms
+        dataset = FileDataset(test_file)
+        dataset.with_transform(str.strip).with_transform(int).with_transform(lambda x: x * 2)
+
+        # Check first few and last few items
+        result = list(dataset)
+        assert len(result) == 1000, 'Should process all lines'
+        assert result[:3] == [0, 2, 4], 'First three items should be transformed correctly'
+        assert result[-3:] == [1994, 1996, 1998], 'Last three items should be transformed correctly'
+
+    def test_save_tensor_simple_tensor(self, tmp_path: Path):
         out_data = torch.as_tensor([1., 2., 3.])
         dest: Path = tmp_path / 'out'
         save_tensor(out_data, dest)
@@ -241,7 +357,7 @@ class TestUtil:
         in_text = dest_txt.read_text()
         assert re.match(r'\s*\[\s*1(.[0-9]*)?\s*,\s*2(.[0-9]*)?\s*,\s*3(.[0-9]*)?\s*\]', in_text)
 
-    def test_app_init_saves_config(self, tmp_path):
+    def test_app_init_saves_config(self, tmp_path: Path):
         @dataclass
         class LocalConfig(BaseConfiguration):
             foo: int = field(default=7)

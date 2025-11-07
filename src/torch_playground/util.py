@@ -341,7 +341,52 @@ def save_tensor(tensor: torch.Tensor, path: Path):
         f.write(pprint.pformat(tensor.tolist(), indent=2, width=80))
 
 
-class FileDataset(IterableDataset):
+class TransformableMixin:
+    """Mixin class that adds transform capability to any iterator-based class.
+
+    This mixin adds the ability to chain transformations onto any class that implements
+    __iter__. Each transform is a callable that processes items from the iterator.
+    """
+    def __init__(self) -> None:
+        """Initialize the transform list."""
+        self.transforms: list[Callable] = []
+
+    def with_transform(self, xform: Callable) -> 'TransformableMixin':
+        """Add a transform to be applied to each item from the dataset.
+
+        Args:
+            xform: A function that takes the output type of the previous transform
+                  and returns any type. For the first transform, the input type must
+                  match what the base iterator produces.
+
+        Returns:
+            self: For method chaining
+        """
+        self.transforms.append(xform)
+        return self
+
+    def _apply_transforms(self, base_iterator: Iterator) -> Iterator:
+        """Apply the chain of transforms to items from the base iterator.
+
+        Args:
+            base_iterator: The source iterator to transform
+
+        Returns:
+            Iterator: An iterator that yields transformed items
+        """
+        if not self.transforms:
+            return base_iterator
+
+        def transform_item(item):
+            result = item
+            for transform in self.transforms:
+                result = transform(result)
+            return result
+
+        return map(transform_item, base_iterator)
+
+
+class FileDataset(TransformableMixin, IterableDataset):
     """Small wrapper class to make a PyTorch IterableDataset from a single file.
 
     This is intended to be simple, not high performance. By default it yields strings
@@ -354,33 +399,6 @@ class FileDataset(IterableDataset):
         super().__init__()
         self.data_file = data_file
         self.data_handle = data_file.open('rt', encoding='utf-8', buffering=(1 << 20))
-        self.transforms: list[Callable] = []
 
     def __iter__(self) -> Iterator:
-        base_iterator = self.data_handle
-        if not self.transforms:
-            return base_iterator
-
-        def transform_item(item: str):
-            result = item
-            for transform in self.transforms:
-                result = transform(result)
-            return result
-
-        return map(transform_item, base_iterator)
-
-    def with_transform(self, xform: Callable) -> 'FileDataset':
-        """Add a transform to be applied to each item from the dataset.
-
-        Args:
-            xform: A function that takes either a string (for the first transform)
-                  or the output type of the previous transform, and returns any type.
-                  The first transform in the chain must accept a string input (since
-                  that's what the file produces), but subsequent transforms can work
-                  with any input/output types as long as they form a valid chain.
-
-        Returns:
-            self: For method chaining
-        """
-        self.transforms.append(xform)
-        return self
+        return self._apply_transforms(self.data_handle)
