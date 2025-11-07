@@ -22,7 +22,7 @@ class BuildTokenizerApp(BaseApp[TokenizerConfig]):
     mapping model to config.output_dir / token_dict.n={self.config.ngram_len}.json."""
 
     def run(self):
-        data = DataLoader(dataset=FileDataset(self.config.data_file).with_transform(lambda x: x.strip()),
+        data = DataLoader(dataset=FileDataset(self.config.data_file).with_transform(lambda x: x.strip()),  # type: ignore
                           batch_size=self.config.batch_size)
         tokenizer = NGramTokenizer(self.config.ngram_len)
         unknown_token = f'<UNKNOWN:{"_" * self.config.ngram_len}>'  # Guaranteed never to be an n-gram.

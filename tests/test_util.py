@@ -32,7 +32,7 @@ class SimpleIterator:
         self.data = data
 
     def __iter__(self) -> Iterator:
-        return self._apply_transforms(iter(self.data)) if hasattr(self, '_apply_transforms') else iter(self.data)
+        return self._apply_transforms(iter(self.data)) if hasattr(self, '_apply_transforms') else iter(self.data)  # type: ignore
 
 
 class TransformableIterator(TransformableMixin, SimpleIterator):
@@ -329,9 +329,6 @@ class TestUtil:
         # Create a temporary file with more test data
         test_file = tmp_path / 'large.txt'
         test_file.write_text('\n'.join([str(x) for x in range(1000)]))
-        # with test_file.open('w') as f:
-        #     for i in range(1000):
-        #         f.write(f'{i}\n')
 
         # Test processing with transforms
         dataset = FileDataset(test_file)

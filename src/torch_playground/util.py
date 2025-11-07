@@ -36,7 +36,7 @@ __all__ = [
 ]
 
 type NumberType = int | float
-type TensorLike = list[NumberType] | torch.Tensor | np.array
+type TensorLike = list[NumberType] | torch.Tensor | np.array  # type: ignore
 
 def get_default_working_dir() -> Path:
     """Get the default working directory based on the current script name."""
