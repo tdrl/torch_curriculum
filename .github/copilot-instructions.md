@@ -73,13 +73,17 @@ For Python code style and syntax conventions, see `.github/instructions/copilot-
 
 ## Key Development Workflows
 
+1. **Dependency Management**
+  - This is a `uv`-based project.
+  - Install dependencies with `uv add [dependency name]`.
+  - Execute code with `uv run`
+    - Example: `uv run pytest`
+    - Example: `uv run python src/torch_playground/app_demo.py --help`
+
 1. **Setup & Environment**
    ```bash
    # Install dependencies
-   python -m pip install -e .
-
-   # Configure environment
-   export PYTHONPATH=src:$PYTHONPATH
+   uv sync
    ```
 
    Note: Project requires Python 3.12+ and PyTorch 2.2 (Intel Mac compatibility)

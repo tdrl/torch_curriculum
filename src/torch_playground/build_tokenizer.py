@@ -5,6 +5,7 @@ from torch_playground.tokenizer import NGramTokenizer
 from dataclasses import dataclass, field
 from pathlib import Path
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 @dataclass
 class TokenizerConfig(BaseConfiguration):
@@ -26,8 +27,10 @@ class BuildTokenizerApp(BaseApp[TokenizerConfig]):
                           batch_size=self.config.batch_size)
         tokenizer = NGramTokenizer(self.config.ngram_len)
         unknown_token = f'<UNKNOWN:{"_" * self.config.ngram_len}>'  # Guaranteed never to be an n-gram.
-        tokenizer.add_single_token(unknown_token, validate_token_length=False)
-        for batch in data:
+        tokenizer.add_unknown_token(unknown_token)
+        tokenizer.add_padding_token('<PAD>')
+        self.logger.info('Starting tokenizer build', ngram_len=self.config.ngram_len)
+        for batch in tqdm(data):
             for row in batch:
                 tokenizer.add_to_token_dict(row)
         self.logger.info('Finished tokenizing', n_tokens=tokenizer.vocab_size())

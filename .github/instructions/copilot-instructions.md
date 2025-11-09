@@ -61,6 +61,23 @@ Follow these conventions for all Python files in the torch_playground codebase:
   - Alphabetize imports by module name.
   - End the file with a newline.
 
+7. **Sequences**
+  - Always use a comma after the last item in a multiline sequence (list, dict, set). Don't use a comma after the last element in a single-line sequence.
+  - Example:
+  ```python
+  my_single_line_list = [ 'a', 'b', 'c' ]
+  my_multiline_list = [
+    'a',
+    'b',
+    'c',
+  ]
+  my_multiline_dict = {
+    'a': 1,
+    'b': 2,
+    'c': 3,
+  }
+  ```
+
 ## Error Handling & Logging
 
 1. **Logging**
@@ -81,3 +98,36 @@ Follow these conventions for all Python files in the torch_playground codebase:
    if config.n_heads > config.d_model:
        raise ValueError(f'Number of heads ({config.n_heads}) cannot exceed model dimension ({config.d_model})')
    ```
+
+## Testing
+
+1. **Pytest**
+   - Use pytest-style testing, not unittest.
+
+1. **Test suite structure**
+   - Wrap all tests for a given unit in a corresponding class.
+   - Example:
+   ```python
+   # In my_code.py:
+   def my_fn_under_test():
+      # Fn content
+
+   # In test_my_code.py:
+   class TestFnUnderTest:
+      def test_my_fn_under_test_a(self):
+         # Execute A test
+
+      def test_my_fn_under_test_b(self):
+         # Execute B test
+
+      # etc.
+   ```
+
+1. **Test coverage**
+   - When testing a unit, to the extent possible:
+     - Test the common, expected behavior cases.
+       - Be sure to cover all choices of all branches.
+     - Test negative cases.
+     - Test all edge conditions (e.g., empty input, max size input, barrier values).
+     - Test corner cases.
+     - Test exception cases (e.g., incorrect input types, wrong values, missing data).

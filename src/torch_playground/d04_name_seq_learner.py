@@ -5,11 +5,12 @@ from torch_playground.util import (
     TrainableModelApp,
     save_tensor,
     SequenceCrossEntropyLoss,
-    FileDataset,
+    InMemoryFileDataset,
 )
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader, random_split
+from torch.utils.data import DataLoader, random_split
+from torch.nn.utils.rnn import pad_sequence
 from torchinfo import summary
 from typing import Optional
 from dataclasses import dataclass, field, asdict
@@ -30,7 +31,7 @@ class NameSeqLearnerConfig(BaseConfiguration):
     d_feedforward: int = field(default=1024, metadata=BaseConfiguration._meta(help='Dimension of the final dense feedforward layer.'))
     in_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of input sequences (context window).'))
     out_seq_length: int = field(default=64, metadata=BaseConfiguration._meta('Length of output sequences (response length).'))
-    vocab_size: int = field(default=2048, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens).'))
+    vocab_size: int = field(default=0, metadata=BaseConfiguration._meta('Size of the vocabulary (number of unique tokens). Overwritten by tokenizer vocab size at runtime.'))
     tokenizer_file: Path = field(default=Path('/dev/null'),
                                  metadata=BaseConfiguration._meta(help='JSON file containing tokenizer state.'))
     learning_rate: float = field(default=0.01,
@@ -38,7 +39,6 @@ class NameSeqLearnerConfig(BaseConfiguration):
 
 
 class NameSeqTransformer(nn.Module):
-    PADDING_INDEX: int = 0
     def __init__(self,
                  d_embedding: int,
                  n_heads: int,
@@ -49,11 +49,11 @@ class NameSeqTransformer(nn.Module):
                  dtype: torch.dtype = torch.float32) -> None:
         super().__init__()
         self.vocab_size = vocab_size
-        embedding = torch.nn.Embedding(num_embeddings=vocab_size,
-                                       embedding_dim=d_embedding,
-                                       max_norm=1.0,
-                                       padding_idx=self.PADDING_INDEX)
-        xformer = torch.nn.Transformer(
+        self.embedding = torch.nn.Embedding(num_embeddings=vocab_size,
+                                            embedding_dim=d_embedding,
+                                            max_norm=1.0,
+                                            dtype=dtype)
+        self.xformer = torch.nn.Transformer(
             d_model=d_embedding,
             num_encoder_layers=n_encoder_layers,
             num_decoder_layers=n_decoder_layers,
@@ -61,7 +61,7 @@ class NameSeqTransformer(nn.Module):
             dim_feedforward=d_feedforward,
             batch_first=True,
             dtype=dtype)
-        self.model = torch.nn.Sequential(embedding, xformer)
+        self.logits_layer = torch.nn.Linear(d_embedding, vocab_size, dtype=dtype)
 
     @staticmethod
     def from_config(config: NameSeqLearnerConfig, dtype: torch.dtype = torch.float32) -> 'NameSeqTransformer':
@@ -73,6 +73,31 @@ class NameSeqTransformer(nn.Module):
                                   vocab_size=config.vocab_size,
                                   dtype=dtype)
 
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the model."""
+        src_emb = self.embedding(src)
+        tgt_emb = self.embedding(tgt)
+        xformer_out = self.xformer(src=src_emb, tgt=tgt_emb)
+        logits = self.logits_layer(xformer_out)
+        return logits
+
+
+class PaddingCollate:
+    """Collate a list of token ID lists into a single batch of tensors, including padding.
+
+    Args:
+        padding_value (int): Value to use for padding shorter sequences.
+    """
+    def __init__(self, padding_value: int):
+        self.padding_value = padding_value
+
+    def __call__(self, batch: list[list[int]]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        tensor_batch = [torch.tensor(item, dtype=torch.long) for item in batch]
+        padded_batch = pad_sequence(tensor_batch, batch_first=True, padding_value=self.padding_value)
+        # TODO(hlane): Return attention masks as well.
+        # TODO(hlane): Shift target to right by one position.
+        return padded_batch, padded_batch, padded_batch  # src, tgt, target
+
 
 class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransformer]):
     def __init__(self, argv: Optional[list[str]] = None):
@@ -81,6 +106,7 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
                          argv=argv)
         self.tokenizer = NGramTokenizer.from_file(self.config.tokenizer_file)
         self.logger.info('Loaded tokenizer', n_tokens=self.tokenizer.vocab_size())
+        self.config.vocab_size = self.tokenizer.vocab_size()
         self.model: NameSeqTransformer | None = None
 
     def run(self):
@@ -88,8 +114,8 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
             self.logger.info('Starting NameSeqLearner app with arguments', **asdict(self.config))
             self.model = NameSeqTransformer.from_config(self.config, dtype=self.dtype).to(self.device)
             self.model.eval()  # We're not training for the moment.
-            full_data = FileDataset(self.config.names_file).with_transform(lambda x: x.strip()).with_transform(self.tokenizer.tokenize)
-            train, test, val = random_split(dataset=full_data, lengths=[0.7, 0.15, 0.15])
+            full_data = InMemoryFileDataset(self.config.names_file).with_transform(str.strip).with_transform(self.tokenizer.tokenize)
+            train, test, val = random_split(dataset=full_data, lengths=[0.7, 0.15, 0.15])  # type: ignore
             self.logger.info('Split full data', train_size=len(train), test_size=len(test), val_size=len(val))
             for d_part, name in [(train, 'train'), (test, 'test'), (val, 'val')]:
                 (self.work_dir / f'{name}_indices.txt').write_text('\n'.join([str(x) for x in d_part.indices]))
@@ -98,7 +124,13 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
             (self.work_dir / 'model_summary.txt').write_text(str(model_summary))
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
             loss_fn = SequenceCrossEntropyLoss()
-            train_loader = DataLoader(train, batch_size=self.config.batch_size, shuffle=True)
+            pad_value = self.tokenizer.get_token_id(self.tokenizer.padding_token)  # type: ignore
+            if pad_value is None:
+                pad_value = 0
+            train_loader = DataLoader(train,
+                                      batch_size=self.config.batch_size,
+                                      shuffle=True,
+                                      collate_fn=PaddingCollate(padding_value=pad_value))
             # TODO(hlane) Add support for holdout test/val data.
             self.train_model(data=train_loader,
                              optimizer=optimizer,
