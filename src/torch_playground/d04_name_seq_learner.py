@@ -16,6 +16,7 @@ from typing import Optional
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from torch_playground.tokenizer import NGramTokenizer
+from functools import lru_cache
 
 
 @dataclass
@@ -63,6 +64,13 @@ class NameSeqTransformer(nn.Module):
             dtype=dtype)
         self.logits_layer = torch.nn.Linear(d_embedding, vocab_size, dtype=dtype)
 
+        # This is a bit convoluted, but we want to cache the generated masks for different sizes.
+        @lru_cache(maxsize=256)  # Should handle all sequence lengths we care about.
+        def _generate_square_subsequent_mask(sz: int) -> torch.Tensor:
+            return torch.nn.Transformer.generate_square_subsequent_mask(sz, dtype=dtype)
+
+        self.get_causal_attention_mask = _generate_square_subsequent_mask
+
     @staticmethod
     def from_config(config: NameSeqLearnerConfig, dtype: torch.dtype = torch.float32) -> 'NameSeqTransformer':
         return NameSeqTransformer(d_embedding=config.d_embedding,
@@ -77,7 +85,10 @@ class NameSeqTransformer(nn.Module):
         """Forward pass through the model."""
         src_emb = self.embedding(src)
         tgt_emb = self.embedding(tgt)
-        xformer_out = self.xformer(src=src_emb, tgt=tgt_emb)
+        xformer_out = self.xformer(src=src_emb,
+                                   tgt=tgt_emb,
+                                   src_mask=self.get_causal_attention_mask(src.size(1)),
+                                   tgt_mask=self.get_causal_attention_mask(tgt.size(1)))
         logits = self.logits_layer(xformer_out)
         return logits
 
@@ -92,11 +103,18 @@ class PaddingCollate:
         self.padding_value = padding_value
 
     def __call__(self, batch: list[list[int]]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Collate a batch of variable-length token ID lists into padded tensors and produce a shifted target vector.
+
+        Args:
+            batch (list[list[int]]): List of token ID lists (ragged lengths). Size: batch_size x [variable_length]
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Padded source tensor, target tensor, and target tensor.
+              Size: batch_size x max_sequence_length (source); batch_size x (max_sequence_length + 1) (target and target).
+        """
         tensor_batch = [torch.tensor(item, dtype=torch.long) for item in batch]
         padded_batch = pad_sequence(tensor_batch, batch_first=True, padding_value=self.padding_value)
-        # TODO(hlane): Return attention masks as well.
-        # TODO(hlane): Shift target to right by one position.
-        return padded_batch, padded_batch, padded_batch  # src, tgt, target
+        target_batch = torch.cat([self.padding_value * torch.ones((padded_batch.size(0), 1), dtype=padded_batch.dtype), padded_batch], dim=1)
+        return padded_batch, target_batch, target_batch  # src, tgt, target
 
 
 class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransformer]):
@@ -137,7 +155,7 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
                              loss_fn=loss_fn)
             with (self.work_dir / 'trained_model.pt').open('wb') as f:
                 torch.save(self.model, f)
-            self.logger.info('Model trained and saved', model_path=self.work_dir / 'trained_model.pt')
+            self.logger.info('Model trained and saved', model_path=str(self.work_dir / 'trained_model.pt'))
             self.logger.info('Application run completed successfully')
         except Exception as e:
             torch.set_printoptions(precision=2, threshold=7, edgeitems=2, linewidth=60)

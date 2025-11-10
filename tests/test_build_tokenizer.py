@@ -26,19 +26,27 @@ class TestBuildTokenizer:
     @pytest.mark.parametrize('k', [1, 2, 10])
     def test_empty_k_gram(self, k: int, tmp_path: Path):
         result = self.setup_data(k=k, data=None, out_dir=tmp_path)
-        assert result.tokens_to_ids == {f'<UNKNOWN:{"_" * k}>': 0}
+        assert result.vocab_size() == 2
+        assert result.unknown_token == f'<UNKNOWN:{"_" * k}>'
+        assert result.padding_token == '<PAD>'
+        assert result.tokens_to_ids == {
+            f'<UNKNOWN:{"_" * k}>': 0,
+            '<PAD>': 1,
+        }
 
     @pytest.mark.parametrize(['k', 'text_len'], ((1, 1), (3, 3), (1, 3), (3, 1), (3, 5)))
     def test_non_empty_k_gram(self, k: int, text_len: int, tmp_path: Path):
         raw_data = ''.join([chr(i + ord('a')) for i in range(text_len)])
         print(f'Debug: text = "{raw_data}"')
         result = self.setup_data(k=k, data=raw_data, out_dir=tmp_path)
-        assert result.vocab_size() == max(text_len - k + 1, 1) + 1
+        assert result.vocab_size() == max(text_len - k + 1, 1) + 2  # n-grams + unknown + padding
         for t, v in result.tokens_to_ids.items():
-            if v > 0:
-                assert t in raw_data
-            else:
+            if v == 0:
                 assert re.match(rf'<UNKNOWN:_{{{k}}}>', t)
+            elif v == 1:
+                assert t == '<PAD>'
+            else:  # Not unknown or padding
+                assert t in raw_data
         codes = set(result.tokens_to_ids.values())  # Dedup token values to check that all are unique.
         assert len(codes) == result.vocab_size()
 
@@ -47,7 +55,8 @@ class TestBuildTokenizer:
         result = self.setup_data(k=2, data=raw_data, out_dir=tmp_path)
         assert result.tokens_to_ids == {
             '<UNKNOWN:__>': 0,
-            'ab': 1,
-            'bc': 2,
-            'cd': 3,
+            '<PAD>': 1,
+            'ab': 2,
+            'bc': 3,
+            'cd': 4,
         }
