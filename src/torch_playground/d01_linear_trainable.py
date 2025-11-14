@@ -1,6 +1,6 @@
 """The most basic trainable model: single linear transform, no bias."""
 
-from torch_playground.util import BaseConfiguration, App, save_tensor, get_default_working_dir
+from torch_playground.util import BaseConfiguration, TrainableModelApp, save_tensor, get_default_working_dir
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
@@ -42,7 +42,7 @@ class LinearTrainableArguments(BaseConfiguration):
     num_train_samples: int = field(default=100, metadata=BaseConfiguration._meta(help='Number of training samples to generate.'))
     learning_rate: float = field(default=0.01, metadata=BaseConfiguration._meta(help='Learning rate for the optimizer.'))
 
-class LinearTrainableApp(App[LinearTrainableArguments, HRLinearTrainable]):
+class LinearTrainableApp(TrainableModelApp[LinearTrainableArguments, HRLinearTrainable]):
     """An application that trains a simple linear model."""
 
     def __init__(self, argv: Optional[list[str]] = None):

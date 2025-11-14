@@ -2,9 +2,6 @@
 
 import keyring  # Accessing API keys securely from Apple Keychain or Windows Credential Store.
 import structlog
-from structlog.processors import TimeStamper, StackInfoRenderer, UnicodeDecoder
-from structlog.dev import ConsoleRenderer, RichTracebackFormatter, RED, GREEN, BLUE, MAGENTA, YELLOW, CYAN, RED_BACK, BRIGHT
-from structlog.stdlib import add_log_level, PositionalArgumentsFormatter
 import logging
 import logging.config
 from dataclasses import dataclass, fields, field, asdict
@@ -14,22 +11,29 @@ import os
 import sys
 from pathlib import Path
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset, Dataset
 from torch.utils.tensorboard.writer import SummaryWriter
+from typing import Iterator, Sized, Iterable
 import pprint
 import datetime
 import tqdm
 import json
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+import numpy as np
 
 __all__ = [
     'setup_logging',
     'fetch_api_keys',
     'BaseConfiguration',
     'parse_cmd_line_args',
-    'App',
+    'TrainableModelApp',
     'save_tensor',
+    'FileDataset',
 ]
 
+type NumberType = int | float
+type TensorLike = list[NumberType] | torch.Tensor | np.array  # type: ignore
 
 def get_default_working_dir() -> Path:
     """Get the default working directory based on the current script name."""
@@ -214,18 +218,26 @@ class SequenceCrossEntropyLoss(torch.nn.CrossEntropyLoss):
         return super().forward(input.reshape(-1, n_categories), target.reshape(-1))
 
 
-class App[T: BaseConfiguration, M: torch.nn.Module]:
-    """Base class for applications.
+class BaseApp[T: BaseConfiguration](ABC):
+    """Root of the App(lication) hierarchy.
 
-    This class provides a common interface for applications, including methods for running the application
-    and setting up logging.
+    This abstract base class for the App hierarchy mostly sets up the
+    baseline operating environment:
+        - Parses command-line args.
+        - Sets up logging and output.
+        - Creates an output directory.
+        - Saves a copy of the config to disk in the output dir.
 
     Type Parameters:
         T: Type of the command line arguments, which must be a subclass of BaseArguments.
-        M: Type of the model, which must be a subclass of torch.nn.Module.
+
+    Arguments:
+        arg_template (T): An instance of type T that will be filled with command-line data.
+        description (str): A program description that will be printed with --help.
+        argv (list[str]): The CLI arguments to the script. Available here as a test
+            injection point.
     """
-    def __init__(self, arg_template: T, description: Optional[str], argv: Optional[list[str]] = None):
-        self.model: Optional[M] = None
+    def __init__(self, arg_template: T, description: str | None, argv: list[str] | None = None):
         self.config = parse_cmd_line_args(arg_template=arg_template, description=description, argv=argv)
         self.run_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         self.work_dir = self.config.output_dir / self.run_timestamp
@@ -235,6 +247,25 @@ class App[T: BaseConfiguration, M: torch.nn.Module]:
         config_dest = (self.work_dir / 'config.json')
         config_dest.write_text(json.dumps(asdict(self.config), indent=2, default=str))
         self.logger.debug('Saved config', file=str(config_dest))
+
+    @abstractmethod
+    def run(self):
+        raise NotImplementedError('run() method needs to be defined by a concrete subclass')
+
+
+class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
+    """Base class for applications that train models.
+
+    This class provides a common interface for applications, including methods for running the application
+    and setting up logging.
+
+    Type Parameters:
+        T: Type of the command line arguments, which must be a subclass of BaseArguments.
+        M: Type of the model, which must be a subclass of torch.nn.Module.
+    """
+    def __init__(self, arg_template: T, description: str | None, argv: list[str] | None = None):
+        super().__init__(arg_template, description, argv)
+        self.model: Optional[M] = None
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -242,11 +273,6 @@ class App[T: BaseConfiguration, M: torch.nn.Module]:
         torch.manual_seed(self.config.randseed)
         self.logger.debug('Set random seed', randseed=self.config.randseed)
         self.tb_writer = SummaryWriter(log_dir=self.config.output_dir / 'tensorboard' / self.run_timestamp)
-
-    def run(self):
-        """Run the application."""
-        # TODO(heather): Wrap this in a decorator that catches exceptions and logs them.
-        raise NotImplementedError("Subclasses must implement this method.")
 
     def train_model(self,
                     data: DataLoader,
@@ -310,3 +336,100 @@ def save_tensor(tensor: torch.Tensor, path: Path):
     torch.save(tensor, path.with_suffix('.pt'))
     with open(path.with_suffix('.txt'), 'w') as f:
         f.write(pprint.pformat(tensor.tolist(), indent=2, width=80))
+
+
+class TransformableMixin:
+    """Mixin class that adds transform capability to any iterator-based class.
+
+    This mixin adds the ability to chain transformations onto any class that implements
+    __iter__. Each transform is a callable that processes items from the iterator.
+    """
+    def __init__(self) -> None:
+        """Initialize the transform list."""
+        self.transforms: list[Callable] = []
+
+    def with_transform(self, xform: Callable) -> 'TransformableMixin':
+        """Add a transform to be applied to each item from the dataset.
+
+        Args:
+            xform: A function that takes the output type of the previous transform
+                  and returns any type. For the first transform, the input type must
+                  match what the base iterator produces.
+
+        Returns:
+            self: For method chaining
+        """
+        self.transforms.append(xform)
+        return self
+
+    def _apply_transforms(self, base_iterator: Iterator) -> Iterator:
+        """Apply the chain of transforms to items from the base iterator.
+
+        Args:
+            base_iterator: The source iterator to transform
+
+        Returns:
+            Iterator: An iterator that yields transformed items
+        """
+        if not self.transforms:
+            return base_iterator
+
+        def transform_item(item):
+            result = item
+            for transform in self.transforms:
+                result = transform(result)
+            return result
+
+        return map(transform_item, base_iterator)
+
+
+class FileDataset(TransformableMixin, IterableDataset):
+    """Small wrapper class to make a PyTorch IterableDataset from a single file.
+
+    This is intended to be simple, not high performance. By default it yields strings
+    (lines) from the file, but transforms can be added to convert these to other types.
+
+    Args:
+        data_file (Path): File to draw from.
+    """
+    def __init__(self, data_file: Path, mode='rt', encoding='utf-8') -> None:
+        super().__init__()
+        self.data_file = data_file
+        self.data_handle = data_file.open(mode, encoding=encoding, buffering=(1 << 20))
+
+    def __iter__(self) -> Iterator:
+        return self._apply_transforms(self.data_handle)
+
+
+class InMemoryFileDataset(Sized, Iterable, TransformableMixin, Dataset):
+    """A Dataset backed by a file, but buffered entierely into memory for random access.
+
+    Warning: Only use this with modest-sized data files (say, 100s of Mb).
+    """
+
+    def __init__(self, data_file: Path, mode='rt', encoding='utf-8') -> None:
+        super().__init__()
+        self.mode = mode
+        self.encoding = encoding
+        self.data_file = data_file
+        self.data_cache = []
+        self.cache_filled = False
+
+    def _cache_data(self):
+        if self.cache_filled:
+            return
+        with self.data_file.open(self.mode, encoding=self.encoding) as d_in:
+            self.data_cache = list(self._apply_transforms(d_in))
+        self.cache_filled = True
+
+    def __getitem__(self, index):
+        self._cache_data()
+        return self.data_cache[index]
+
+    def __len__(self) -> int:
+        self._cache_data()
+        return len(self.data_cache)
+
+    def __iter__(self) -> Iterator:
+        self._cache_data()
+        return iter(self.data_cache)
