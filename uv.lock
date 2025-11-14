@@ -453,6 +453,17 @@ wheels = [
 ]
 
 [[package]]
+name = "flake8-pyproject"
+version = "1.2.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "flake8" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/1d/635e86f9f3a96b7ea9e9f19b5efe17a987e765c39ca496e4a893bb999112/flake8_pyproject-1.2.3-py3-none-any.whl", hash = "sha256:6249fe53545205af5e76837644dc80b4c10037e73a0e5db87ff562d75fb5bd4a", size = 4756 },
+]
+
+[[package]]
 name = "fqdn"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2044,6 +2055,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "flake8" },
+    { name = "flake8-pyproject" },
     { name = "jupyter" },
     { name = "keyring" },
     { name = "numpy" },
@@ -2060,6 +2072,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "flake8", specifier = ">=7.3.0" },
+    { name = "flake8-pyproject", specifier = ">=1.2.3" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "keyring", specifier = ">=25.6.0" },
     { name = "numpy", specifier = "<2" },
