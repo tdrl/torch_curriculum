@@ -6,6 +6,8 @@ import logging
 import logging.config
 from dataclasses import dataclass, fields, field, asdict
 import argparse
+import typing
+import types
 from typing import Optional
 import os
 import sys
@@ -84,11 +86,30 @@ def parse_cmd_line_args[T: BaseConfiguration](arg_template: T, description: Opti
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=description)
     for field in fields(arg_template):
-        parser.add_argument(f'--{field.name}',
-                            type=field.type,
-                            default=field.default,
-                            help=field.metadata.get('help', f'{field.default}'),
-                            required=field.metadata.get('required', False))
+        # Handle union types (e.g., str | None) by extracting the non-None type
+        field_type = field.type
+
+        # Check for types.UnionType (from | syntax in Python 3.10+)
+        if hasattr(types, 'UnionType') and isinstance(field_type, types.UnionType):
+            args = typing.get_args(field_type)
+            field_type = next((arg for arg in args if arg is not type(None)), str)
+        # Check for typing.Union (e.g., Optional[str] from typing)
+        elif hasattr(typing, 'get_origin'):
+            origin = typing.get_origin(field_type)
+            if origin is typing.Union:
+                args = typing.get_args(field_type)
+                field_type = next((arg for arg in args if arg is not type(None)), str)
+
+        # Only pass type if it's callable
+        kwargs = {
+            'default': field.default,
+            'help': field.metadata.get('help', f'{field.default}'),
+            'required': field.metadata.get('required', False),
+        }
+        if callable(field_type):
+            kwargs['type'] = field_type
+
+        parser.add_argument(f'--{field.name}', **kwargs)
     args = parser.parse_args(argv, namespace=arg_template)
     return args
 

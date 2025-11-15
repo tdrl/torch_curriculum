@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import json
+import torch
 
 
 class _UniqueIdFactory:
@@ -124,3 +125,52 @@ class NGramTokenizer(object):
             int | None: ID of the token, or None if the token is not in the dictionary.
         """
         return self.tokens_to_ids.get(token, None)
+
+    def decode(self, token_ids: list[int] | torch.Tensor) -> str:
+        """Decode a sequence of token IDs back to a string.
+
+        Concatenates the string representations of all tokens to form the decoded output.
+
+        Args:
+            token_ids: List of token IDs or torch.Tensor of shape (seq_len,)
+        Returns:
+            str: Decoded string by concatenating token strings
+        Raises:
+            ValueError: If a token ID is not in the vocabulary
+        """
+        # Convert tensor to list if needed
+        if isinstance(token_ids, torch.Tensor):
+            token_ids = token_ids.tolist()
+
+        tokens = []
+        for token_id in token_ids:
+            token_str = self.get_token_string(token_id)
+            if token_str is None:
+                raise ValueError(f'Token ID {token_id} not found in vocabulary (vocab_size={self.vocab_size()})')
+            tokens.append(token_str)
+
+        return ''.join(tokens)
+
+    def get_token_string(self, token_id: int) -> str | None:
+        """Get the string representation of a token ID.
+
+        Args:
+            token_id (int): Token ID to look up
+        Returns:
+            str | None: Token string, or None if ID not in vocabulary
+        """
+        # Reverse lookup: ID to string
+        for token_str, tid in self.tokens_to_ids.items():
+            if tid == token_id:
+                return token_str
+        return None
+
+    def has_token_id(self, token_id: int) -> bool:
+        """Check if a token ID exists in the vocabulary.
+
+        Args:
+            token_id (int): Token ID to check
+        Returns:
+            bool: True if token ID is valid, False otherwise
+        """
+        return any(tid == token_id for tid in self.tokens_to_ids.values())
