@@ -225,7 +225,7 @@ class BasicTransformerApp(TrainableModelApp[BasicTransformerConfig, HRLBasicTran
             loss_fn = SequenceCrossEntropyLoss()
             train_loader = DataLoader(train, batch_size=self.config.batch_size, shuffle=True)
             # TODO(hlane) Add support for holdout test/val data.
-            self.train_model(data=train_loader,
+            self.train_model(train_data=train_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
             with (self.work_dir / 'trained_model.pt').open('wb') as f:

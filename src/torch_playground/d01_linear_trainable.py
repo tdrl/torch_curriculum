@@ -110,7 +110,7 @@ class LinearTrainableApp(TrainableModelApp[LinearTrainableArguments, HRLinearTra
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
             loss_fn = nn.MSELoss(reduction='mean')
             data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
-            self.train_model(data=data_loader,
+            self.train_model(train_data=data_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
             save_tensor(self.model.W, self.work_dir / 'W_trained')

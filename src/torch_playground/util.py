@@ -274,10 +274,68 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
         self.logger.debug('Set random seed', randseed=self.config.randseed)
         self.tb_writer = SummaryWriter(log_dir=self.config.output_dir / 'tensorboard' / self.run_timestamp)
 
-    def train_model(self,
+    def _record_loss_metrics(self,
+                             avg_loss: float,
+                             global_step: int,
+                             split: str,
+                             epoch_logger: structlog.BoundLogger,
+                             batch_id: int) -> None:
+        """Record loss metrics to tensorboard and logger.
+
+        Args:
+            avg_loss: The average loss value.
+            global_step: The global step count (for tensorboard).
+            split: The data split name (e.g., 'train', 'eval', 'test').
+            epoch_logger: The logger instance bound to the current epoch.
+            batch_id: The batch ID for logging context.
+        """
+        epoch_logger.debug('Batch', batch=batch_id, global_step=global_step, loss=avg_loss, split=split)
+        self.tb_writer.add_scalar(f'{split} loss',
+                                  avg_loss,
+                                  global_step=global_step)
+
+    def _eval_split(self,
                     data: DataLoader,
+                    loss_fn: torch.nn.Module,
+                    split: str,
+                    global_step: int,
+                    epoch_logger: structlog.BoundLogger) -> None:
+        """Evaluate the model on a data split and record metrics.
+
+        Args:
+            data: DataLoader providing the evaluation/test data. Assumes each batch
+                is a tuple (inputs, targets).
+            loss_fn: The loss function to use for evaluation.
+            split: The split identifier (e.g., 'eval', 'test').
+            global_step: The global step count (for tensorboard).
+            epoch_logger: The logger instance bound to the current epoch.
+        """
+        assert self.model is not None, 'Model must be initialized before evaluation.'
+        epoch_logger.info(f'Starting {split} evaluation')
+        self.model.eval()
+        split_loss = 0.0
+        split_steps = 0
+        with torch.no_grad():
+            for _, batch_data in tqdm.tqdm(enumerate(data), desc=f'{split} batch loss', leave=False):
+                predicted = self.model(*batch_data[:-1])
+                batch_loss = loss_fn(predicted, batch_data[-1])
+                split_loss += batch_loss.item()
+                split_steps += 1
+        avg_split_loss = split_loss / split_steps
+        epoch_logger.info(f'Completed {split} loss measurement', loss=avg_split_loss, split=split)
+        self._record_loss_metrics(avg_loss=avg_split_loss,
+                                  global_step=global_step,
+                                  split=split,
+                                  epoch_logger=epoch_logger,
+                                  batch_id=-1)
+        self.model.train()  # Switch back to training mode
+
+    def train_model(self,
+                    train_data: DataLoader,
                     optimizer: torch.optim.Optimizer,
-                    loss_fn: torch.nn.Module) -> None:
+                    loss_fn: torch.nn.Module,
+                    eval_data: DataLoader | None = None,
+                    test_data: DataLoader | None = None) -> None:
         """Train the model.
 
         This is a generic training loop, appropriate for supervised model training.
@@ -303,7 +361,7 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
         running_steps = 0
         for epoch in tqdm.tqdm(range(self.config.epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
-            for batch_id, batch_data in tqdm.tqdm(enumerate(data), desc='Batch', leave=False, total=len(data)):
+            for batch_id, batch_data in tqdm.tqdm(enumerate(train_data), desc='Batch', leave=False, total=len(train_data)):
                 optimizer.zero_grad()  # Clear gradients
                 predicted = self.model(*batch_data[:-1])
                 for idx, d in enumerate(batch_data):
@@ -315,18 +373,33 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
                 running_loss += train_loss.item()
                 running_steps += 1
                 if self.config.monitor_steps > 0 and batch_id % self.config.monitor_steps == 0:
-                    global_step = epoch * len(data) + batch_id
-                    epoch_logger.debug('Batch', batch=batch_id, global_step=global_step, loss=train_loss.item())
-                    self.tb_writer.add_scalar('train loss',
-                                              running_loss / running_steps,
-                                              global_step=global_step)
+                    global_step = epoch * len(train_data) + batch_id
+                    self._record_loss_metrics(avg_loss=running_loss / running_steps,
+                                              global_step=global_step,
+                                              split='train',
+                                              epoch_logger=epoch_logger,
+                                              batch_id=batch_id)
                     for name, param in self.model.named_parameters():
                         self.tb_writer.add_histogram(name,
                                                      param,
                                                      global_step=global_step)
                     running_loss = 0.0
                     running_steps = 0
+            # End of epoch logging
+            epoch_logger.info('Completed epoch')
+            if eval_data is not None:
+                self._eval_split(data=eval_data,
+                                loss_fn=loss_fn,
+                                split='eval',
+                                global_step=(epoch + 1) * len(train_data),
+                                epoch_logger=epoch_logger)
         self.logger.info('Model training completed')
+        if test_data is not None:
+            self._eval_split(data=test_data,
+                             loss_fn=loss_fn,
+                             split='test',
+                             global_step=(self.config.epochs + 1) * len(train_data),
+                             epoch_logger=self.logger)
 
 
 def save_tensor(tensor: torch.Tensor, path: Path):

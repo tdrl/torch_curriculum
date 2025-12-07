@@ -177,7 +177,7 @@ class LinearTrainableApp(TrainableModelApp[MultilayerArguments, HRLinearMultilay
             optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
             loss_fn = nn.NLLLoss()
             data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
-            self.train_model(data=data_loader,
+            self.train_model(train_data=data_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
             with (self.work_dir / 'trained_model.pt').open('wb') as f:
