@@ -149,8 +149,11 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
                                       batch_size=self.config.batch_size,
                                       shuffle=True,
                                       collate_fn=PaddingCollate(padding_value=pad_value))
-            # TODO(hlane) Add support for holdout test/val data.
+            test_loader = DataLoader(test, batch_size=self.config.batch_size)
+            validate_loader = DataLoader(val, batch_size=self.config.batch_size)
             self.train_model(train_data=train_loader,
+                             test_data=test_loader,
+                             validate_data=validate_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
             with (self.work_dir / 'trained_model.pt').open('wb') as f:

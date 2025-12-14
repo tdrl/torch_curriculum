@@ -220,14 +220,18 @@ class BasicTransformerApp(TrainableModelApp[BasicTransformerConfig, HRLBasicTran
                                     verbose=0)
             self.logger.info('Model summary', model=model_summary)
             (self.work_dir / 'model_summary.txt').write_text(str(model_summary))
+            self.model = self.model.to(self.device)
+            self.logger.info('Model moved to device', device=self.device)
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
-            # loss_fn = nn.CrossEntropyLoss()
             loss_fn = SequenceCrossEntropyLoss()
             train_loader = DataLoader(train, batch_size=self.config.batch_size, shuffle=True)
-            # TODO(hlane) Add support for holdout test/val data.
+            test_loader = DataLoader(test, batch_size=self.config.batch_size)
+            validate_loader = DataLoader(val, batch_size=self.config.batch_size)
             self.train_model(train_data=train_loader,
                              optimizer=optimizer,
-                             loss_fn=loss_fn)
+                             loss_fn=loss_fn,
+                             validate_data=validate_loader,
+                             test_data=test_loader)
             with (self.work_dir / 'trained_model.pt').open('wb') as f:
                 torch.save(self.model, f)
             self.logger.info('Model trained and saved', model_path=self.work_dir / 'trained_model.pt')

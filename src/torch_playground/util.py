@@ -268,7 +268,11 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
         self.model: Optional[M] = None
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = torch.device('cpu')
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+        if torch.backends.mps.is_available():
+            self.device = torch.device('mps')
         self.logger.debug('Assigned device', device=self.device)
         torch.manual_seed(self.config.randseed)
         self.logger.debug('Set random seed', randseed=self.config.randseed)
@@ -317,6 +321,7 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
         split_steps = 0
         with torch.no_grad():
             for _, batch_data in tqdm.tqdm(enumerate(data), desc=f'{split} batch loss', leave=False):
+                batch_data = [x.to(self.device) for x in batch_data]
                 predicted = self.model(*batch_data[:-1])
                 batch_loss = loss_fn(predicted, batch_data[-1])
                 split_loss += batch_loss.item()
@@ -334,8 +339,8 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
                     train_data: DataLoader,
                     optimizer: torch.optim.Optimizer,
                     loss_fn: torch.nn.Module,
-                    eval_data: DataLoader | None = None,
-                    test_data: DataLoader | None = None) -> None:
+                    test_data: DataLoader | None = None,
+                    validate_data: DataLoader | None = None) -> None:
         """Train the model.
 
         This is a generic training loop, appropriate for supervised model training.
@@ -343,7 +348,7 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
         Requires: self.model has already been initialized.
 
         Arguments:
-            data (DataLoader): DataLoader providing the training data. Assumes that each
+            train_data (DataLoader): DataLoader providing the training data. Assumes that each
                 batch is a tuple (inputs, targets).
             optimizer (torch.optim.Optimizer): The optimizer to use for training. Must be
                 initialized with the model's parameters and pre-configured with learning
@@ -351,17 +356,23 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
             loss_fn (torch.nn.Module): The loss function to use for training. Must be
                 pre-configured (e.g., with reduction method).
             num_epochs (int): The number of epochs to train the model for.
+            test_data (DataLoader | None): Optional DataLoader providing test data for
+                for evaluation during training.
+            validate_data (DataLoader | None): Optional DataLoader providing validation data
+                evaluation after training.
         """
         assert self.model is not None, 'Model must be initialized before training.'
         self.logger.info('Starting model training', epochs=self.config.epochs)
         self.logger.debug('Optimizer', optimizer=optimizer)
         self.logger.debug('Loss function', loss_function=loss_fn)
         self.model.train()  # Set the model to training mode
+        self.model.to(self.device)  # Toggling between eval and train modes seems to reset the device, so fix it here.
         running_loss = 0.0
         running_steps = 0
         for epoch in tqdm.tqdm(range(self.config.epochs), desc='Epoch'):
             epoch_logger = self.logger.bind(epoch=epoch)
             for batch_id, batch_data in tqdm.tqdm(enumerate(train_data), desc='Batch', leave=False, total=len(train_data)):
+                batch_data = [x.to(self.device) for x in batch_data]
                 optimizer.zero_grad()  # Clear gradients
                 predicted = self.model(*batch_data[:-1])
                 for idx, d in enumerate(batch_data):
@@ -387,17 +398,17 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
                     running_steps = 0
             # End of epoch logging
             epoch_logger.info('Completed epoch')
-            if eval_data is not None:
-                self._eval_split(data=eval_data,
-                                loss_fn=loss_fn,
-                                split='eval',
-                                global_step=(epoch + 1) * len(train_data),
-                                epoch_logger=epoch_logger)
+            if test_data is not None:
+                self._eval_split(data=test_data,
+                                 loss_fn=loss_fn,
+                                 split='test',
+                                 global_step=(epoch + 1) * len(train_data),
+                                 epoch_logger=epoch_logger)
         self.logger.info('Model training completed')
-        if test_data is not None:
-            self._eval_split(data=test_data,
+        if validate_data is not None:
+            self._eval_split(data=validate_data,
                              loss_fn=loss_fn,
-                             split='test',
+                             split='validate',
                              global_step=(self.config.epochs + 1) * len(train_data),
                              epoch_logger=self.logger)
 

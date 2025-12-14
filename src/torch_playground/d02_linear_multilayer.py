@@ -4,7 +4,6 @@ from torch_playground.util import (
     BaseConfiguration,
     TrainableModelApp,
     save_tensor,
-    get_default_working_dir,
     accuracy
 )
 import torch
@@ -49,7 +48,7 @@ class HRLinearMultilayer(nn.Module):
         return self.layers(x)
 
 class DataGenerator:
-    def __init__(self, dim: int, n_classes: int, dtype: torch.dtype) -> None:
+    def __init__(self, dim: int, n_classes: int, dtype: torch.dtype, device: torch.device) -> None:
         """Set up the hyperparameters for the data generation process.
 
         This initializes the following internal hyperparameters:
@@ -65,6 +64,7 @@ class DataGenerator:
         logger = structlog.get_logger()
         self.dim = dim
         self.n_classes = n_classes
+        self.device = device
         S = torch.randn(size=(dim, dim), dtype=dtype)
         S = S.T @ S
         L = torch.linalg.cholesky(S)
@@ -102,7 +102,7 @@ class DataGenerator:
         for c in range(self.n_classes):
             class_indices = (y == c)
             X[class_indices, :] = (raw_points[class_indices, :] @ self._cov_factors_cache[c]) + self.means[c]
-        return TensorDataset(X, y)
+        return TensorDataset(X.to(self.device), y.to(self.device))
 
 
 @dataclass
@@ -146,7 +146,7 @@ class LinearTrainableApp(TrainableModelApp[MultilayerArguments, HRLinearMultilay
         # TODO(heather): This is common boilerplate, should be moved to App.
         try:
             self.logger.info('Starting LinearTrainableApp with arguments', **asdict(self.config))
-            data_generator = DataGenerator(dim=self.config.dim, n_classes=self.config.n_classes, dtype=self.dtype)
+            data_generator = DataGenerator(dim=self.config.dim, n_classes=self.config.n_classes, dtype=self.dtype, device=self.device)
             data = data_generator.generate(n_points=self.config.n_train_samples)
             self.logger.debug('Synthesized data',
                               n_points=len(data),
@@ -166,14 +166,15 @@ class LinearTrainableApp(TrainableModelApp[MultilayerArguments, HRLinearMultilay
                                          metadata=data.tensors[1][:display_count],
                                          global_step=0,
                                          tag='Data class distribution')
+            # Note: Move this to self.device after entering the training loop.
             self.model = HRLinearMultilayer(input_dim=self.config.dim,
                                             n_classes=self.config.n_classes,
                                             n_hidden_layers=self.config.n_hidden_layers,
-                                            dtype=self.dtype).to(self.device)
+                                            dtype=self.dtype)
             self.model.eval()  # We're not training for the moment.
-            self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
+            self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to('cpu'))[:5])
             self.logger.info('Model summary', model=summary(self.model, input_size=(self.config.n_train_samples, self.config.dim), verbose=0))
-            self.tb_writer.add_graph(self.model, data.tensors[0])
+            self.tb_writer.add_graph(self.model, data.tensors[0].to('cpu'))
             optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
             loss_fn = nn.NLLLoss()
             data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
