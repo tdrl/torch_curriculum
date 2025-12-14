@@ -6,7 +6,7 @@ from torch_playground.d03_basic_transformer import BasicTransformerApp
 @pytest.mark.integration
 class TestIntegrationD03BasicTransformer:
 
-    def test_full_run(self, tmp_path):
+    def test_full_run(self, tmp_path: Path):
         app = BasicTransformerApp(['--output_dir', str(tmp_path),
                                    '--epochs', '2',
                                    '--batch_size', '3',
