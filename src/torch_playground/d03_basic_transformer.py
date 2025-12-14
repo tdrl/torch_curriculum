@@ -103,7 +103,7 @@ class HRLBasicTransformer(nn.Module):
            non_blocking: bool = False) -> 'HRLBasicTransformer':
         """Override to method to ensure the embedding mapping is also moved to the device."""
         result = super().to(device=device, dtype=dtype, non_blocking=non_blocking)
-        result.embedding_mapping = result.embedding_mapping.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        result.embedding_mapping = result.embedding_mapping.to(device=device, dtype=dtype, non_blocking=non_blocking)  # type: ignore
         return result
 
     def embed(self, data: torch.Tensor) -> torch.Tensor:
