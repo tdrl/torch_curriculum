@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 from torch_playground.d02_linear_multilayer import LinearTrainableApp
 
@@ -5,7 +6,7 @@ from torch_playground.d02_linear_multilayer import LinearTrainableApp
 @pytest.mark.integration
 class TestIntegrationD02Linear:
 
-    def test_full_run(self, tmp_path):
+    def test_full_run(self, tmp_path: Path):
         app = LinearTrainableApp(['--dim', '10',
                                   '--n_classes', '3',
                                   '--n_hidden_layers', '2',

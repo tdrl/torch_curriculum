@@ -9,6 +9,7 @@ from torch_playground.util import (
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader, random_split
+from torch._prims_common import DeviceLikeType
 from torchinfo import summary
 from typing import Optional
 from dataclasses import dataclass, field, asdict
@@ -97,6 +98,13 @@ class HRLBasicTransformer(nn.Module):
                                    d_feedforward=config.d_feedforward,
                                    vocab_size=config.vocab_size,
                                    dtype=dtype)
+
+    def to(self, device: DeviceLikeType | None = None, dtype: torch.dtype | str | None = None, # type: ignore
+           non_blocking: bool = False) -> 'HRLBasicTransformer':
+        """Override to method to ensure the embedding mapping is also moved to the device."""
+        result = super().to(device=device, dtype=dtype, non_blocking=non_blocking)
+        result.embedding_mapping = result.embedding_mapping.to(device=device, dtype=dtype, non_blocking=non_blocking)  # type: ignore
+        return result
 
     def embed(self, data: torch.Tensor) -> torch.Tensor:
         """Embed a data tensor.
@@ -205,7 +213,7 @@ class BasicTransformerApp(TrainableModelApp[BasicTransformerConfig, HRLBasicTran
         # TODO(heather): This is common boilerplate, should be moved to App.
         try:
             self.logger.info('Starting BasicTranformer demo app with arguments', **asdict(self.config))
-            self.model = HRLBasicTransformer.from_config(self.config, dtype=self.dtype).to(self.device)
+            self.model = HRLBasicTransformer.from_config(self.config, dtype=self.dtype)
             self.model.eval()  # We're not training for the moment.
             data = TensorDataset(*generate_data(self.config.n_points, self.config.in_seq_length))
             save_tensor(data.tensors[0], self.work_dir / 'in_seq_data')
@@ -220,14 +228,18 @@ class BasicTransformerApp(TrainableModelApp[BasicTransformerConfig, HRLBasicTran
                                     verbose=0)
             self.logger.info('Model summary', model=model_summary)
             (self.work_dir / 'model_summary.txt').write_text(str(model_summary))
+            self.model = self.model.to(self.device)
+            self.logger.info('Model moved to device', device=self.device)
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
-            # loss_fn = nn.CrossEntropyLoss()
             loss_fn = SequenceCrossEntropyLoss()
             train_loader = DataLoader(train, batch_size=self.config.batch_size, shuffle=True)
-            # TODO(hlane) Add support for holdout test/val data.
-            self.train_model(data=train_loader,
+            test_loader = DataLoader(test, batch_size=self.config.batch_size)
+            validate_loader = DataLoader(val, batch_size=self.config.batch_size)
+            self.train_model(train_data=train_loader,
                              optimizer=optimizer,
-                             loss_fn=loss_fn)
+                             loss_fn=loss_fn,
+                             validate_data=validate_loader,
+                             test_data=test_loader)
             with (self.work_dir / 'trained_model.pt').open('wb') as f:
                 torch.save(self.model, f)
             self.logger.info('Model trained and saved', model_path=self.work_dir / 'trained_model.pt')

@@ -20,6 +20,17 @@ from torch_playground.util import (
     InMemoryFileDataset,
 )
 
+def with_eligible_devices():
+    """
+    Decorator to run a test on all eligible devices (CPU, CUDA, MPS if available).
+    """
+    devices = [torch.device('cpu')]
+    if torch.cuda.is_available():
+        devices.append(torch.device('cuda'))
+    if torch.backends.mps.is_available():
+        devices.append(torch.device('mps'))
+    return pytest.mark.parametrize('device', devices)
+
 
 class MinimalApp[BaseConfiguration](BaseApp):
     """A minimal app that implements the run() method as a no-op, for pure testing purposes."""
