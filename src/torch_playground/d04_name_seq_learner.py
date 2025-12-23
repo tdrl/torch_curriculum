@@ -159,7 +159,8 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
                              test_data=test_loader,
                              validate_data=validate_loader,
                              optimizer=optimizer,
-                             loss_fn=loss_fn)
+                             loss_fn=loss_fn,
+                             epoch_checkpoints=True)
             with (self.work_dir / 'trained_model.pt').open('wb') as f:
                 # Save state_dict rather than the full model to avoid pickling local functions
                 torch.save(self.model.state_dict(), f)

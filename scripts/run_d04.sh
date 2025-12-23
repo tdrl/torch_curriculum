@@ -3,14 +3,14 @@
 set -e
 
 typeset -A arg_vals
-zparseopts -D -E -A arg_vals h -help -small -full
+zparseopts -D -E -A arg_vals h -help -small -full -batch_size:
 
 for k v in "${(@kv)arg_vals}"; do
     echo "[${k}] -> '${v}'"
 done
 
 if [[ -v arg_vals[-h] || -v arg_vals[--help] ]]; then
-    echo "Usage: $0 [--small|--full]"
+    echo "Usage: $0 [--small|--full] [--batch_size N]"
     exit 0
 fi
 if [[ -v arg_vals[--small] && -v arg_vals[--full] ]]; then
@@ -22,7 +22,7 @@ DATA_DIR=${HOME}/private/data/finnlp_humannames
 
 if [[ -v arg_vals[--small] ]]; then
     EPOCHS=3
-    BATCH_SIZE=25
+    BATCH_SIZE=${arg_vals[--batch_size]:-25}
     D_EMBED=128
     SEQ_LEN=16
     NGRAM_LEN=3
@@ -40,7 +40,7 @@ if [[ -v arg_vals[--small] ]]; then
 
 elif [[ -v arg_vals[--full] ]]; then
     EPOCHS=10
-    BATCH_SIZE=50
+    BATCH_SIZE=${arg_vals[--batch_size]:-50}
     D_EMBED=128
     SEQ_LEN=16
     NGRAM_LEN=3

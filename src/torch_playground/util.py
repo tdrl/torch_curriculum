@@ -340,7 +340,8 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
                     optimizer: torch.optim.Optimizer,
                     loss_fn: torch.nn.Module,
                     test_data: DataLoader | None = None,
-                    validate_data: DataLoader | None = None) -> None:
+                    validate_data: DataLoader | None = None,
+                    epoch_checkpoints: bool = False) -> None:
         """Train the model.
 
         This is a generic training loop, appropriate for supervised model training.
@@ -360,6 +361,7 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
                 for evaluation during training.
             validate_data (DataLoader | None): Optional DataLoader providing validation data
                 evaluation after training.
+            epoch_checkpoints (bool): Whether to save checkpoints at the end of each epoch.
         """
         assert self.model is not None, 'Model must be initialized before training.'
         self.logger.info('Starting model training', epochs=self.config.epochs)
@@ -396,6 +398,11 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
                                                      global_step=global_step)
                     running_loss = 0.0
                     running_steps = 0
+                # Save checkpoint if required
+                if epoch_checkpoints:
+                    checkpoint_dir = self.work_dir / f'model_checkpoints'
+                    checkpoint_dir.mkdir(exist_ok=True, parents=True)
+                    torch.save(self.model.state_dict(), checkpoint_dir / f'checkpoint_epoch_{epoch}.pt')
             # End of epoch logging
             epoch_logger.info('Completed epoch')
             if test_data is not None:
