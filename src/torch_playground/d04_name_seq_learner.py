@@ -149,12 +149,20 @@ class NameSeqLearnerApp(TrainableModelApp[NameSeqLearnerConfig, NameSeqTransform
                                       batch_size=self.config.batch_size,
                                       shuffle=True,
                                       collate_fn=PaddingCollate(padding_value=pad_value))
-            # TODO(hlane) Add support for holdout test/val data.
-            self.train_model(data=train_loader,
+            test_loader = DataLoader(test,
+                                     batch_size=self.config.batch_size,
+                                     collate_fn=PaddingCollate(padding_value=pad_value))
+            validate_loader = DataLoader(val,
+                                         batch_size=self.config.batch_size,
+                                         collate_fn=PaddingCollate(padding_value=pad_value))
+            self.train_model(train_data=train_loader,
+                             test_data=test_loader,
+                             validate_data=validate_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
             with (self.work_dir / 'trained_model.pt').open('wb') as f:
-                torch.save(self.model, f)
+                # Save state_dict rather than the full model to avoid pickling local functions
+                torch.save(self.model.state_dict(), f)
             self.logger.info('Model trained and saved', model_path=str(self.work_dir / 'trained_model.pt'))
             self.logger.info('Application run completed successfully')
         except Exception as e:

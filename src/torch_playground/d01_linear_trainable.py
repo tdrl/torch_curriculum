@@ -16,19 +16,19 @@ class HRLinearTrainable(nn.Module):
     This model assumes that data points are rows in the input tensor.
     """
 
-    def __init__(self, input_dim: int, W: Optional[torch.Tensor] = None, dtype: torch.dtype = torch.float32):
+    def __init__(self, input_dim: int, W: torch.Tensor | None = None, dtype: torch.dtype = torch.float32, device: torch.device = torch.device('cpu')):
         super().__init__()
         assert input_dim > 0, 'Input dimension must be positive.'
         self.input_dim = input_dim
         if W is None:
-            w_tmp = torch.randn((input_dim,), dtype=dtype, requires_grad=True)
+            w_tmp = torch.randn((input_dim,), dtype=dtype, requires_grad=True, device=device)
         else:
             assert W.shape == (input_dim,), 'Weight tensor shape mismatch.'
             w_tmp = W
-        self.W = nn.Parameter(w_tmp, requires_grad=True)
+        self.W = nn.Parameter(w_tmp, requires_grad=True).to(device)
 
     def __repr__(self):
-        return f'HRLinearTrainable(input_dim={self.input_dim}, W.shape={self.W.shape})'
+        return f'HRLinearTrainable(input_dim={self.input_dim}, W.shape={self.W.shape}, W.device={self.W.device})'
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the linear layer."""
@@ -65,7 +65,7 @@ class LinearTrainableApp(TrainableModelApp[LinearTrainableArguments, HRLinearTra
         # A zero-mean, unit-variance, normally distributed data set.
         X = torch.randn(size=(self.config.num_train_samples, self.config.dim), dtype=self.dtype).to(self.device)
         self.logger.debug('X[0:3]', sample=X[:3])
-        discriminator = torch.randn(size=(self.config.dim,), dtype=self.dtype)
+        discriminator = torch.randn(size=(self.config.dim,), dtype=self.dtype).to(self.device)
         self.logger.debug('Discriminator', sample=discriminator)
         # Classify the data points based on the discriminator.
         y = torch.sign(X @ discriminator).to(self.device)
@@ -103,14 +103,16 @@ class LinearTrainableApp(TrainableModelApp[LinearTrainableArguments, HRLinearTra
             save_tensor(discriminator, self.work_dir / 'discriminator')
             save_tensor(data.tensors[0], self.work_dir / 'X')
             save_tensor(data.tensors[1], self.work_dir / 'y')
-            self.model = HRLinearTrainable(input_dim=self.config.dim, dtype=self.dtype).to(self.device)
-            self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
+            self.model = HRLinearTrainable(input_dim=self.config.dim, dtype=self.dtype)
+            # Annoyingly, the torch summary method seems to force the model to be on CPU. Do this before moving to device.
             self.logger.info('Model summary', model=summary(self.model, input_size=(self.config.num_train_samples, self.config.dim), verbose=0))
-            self.tb_writer.add_graph(self.model, data.tensors[0])
+            self.model = self.model.to(self.device)
+            self.logger.info('Sample output', sample_output=self.model(data.tensors[0].to(self.device))[:5])
+            self.tb_writer.add_graph(self.model, data.tensors[0].to(self.device))
             optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config.learning_rate)
             loss_fn = nn.MSELoss(reduction='mean')
             data_loader = DataLoader(data, batch_size=self.config.batch_size, shuffle=True)
-            self.train_model(data=data_loader,
+            self.train_model(train_data=data_loader,
                              optimizer=optimizer,
                              loss_fn=loss_fn)
             save_tensor(self.model.W, self.work_dir / 'W_trained')
@@ -122,6 +124,7 @@ class LinearTrainableApp(TrainableModelApp[LinearTrainableArguments, HRLinearTra
             self.logger.info('Predictions saved', predictions_path=self.work_dir / 'predictions_truth.pt')
             self.logger.info('Application run completed successfully')
         except Exception as e:
+            torch.set_printoptions(precision=2, threshold=7, edgeitems=2, linewidth=60)
             self.logger.exception('Uncaught error somewhere in the code (hopeless).', exc_info=e)
             raise
 
