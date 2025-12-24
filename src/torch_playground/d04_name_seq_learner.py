@@ -17,6 +17,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from torch_playground.tokenizer import NGramTokenizer
 from functools import lru_cache
+import json
 
 
 @dataclass
@@ -37,6 +38,15 @@ class NameSeqLearnerConfig(BaseConfiguration):
                                  metadata=BaseConfiguration._meta(help='JSON file containing tokenizer state.'))
     learning_rate: float = field(default=0.01,
                                  metadata=BaseConfiguration._meta(help='SGD learning rate.'))
+
+    @staticmethod
+    def from_json_file(json_file: Path) -> 'NameSeqLearnerConfig':
+        """Load configuration object from a JSON file."""
+        with json_file.open('r') as f:
+            config_dict = json.load(f)
+            for path_field in ['tokenizer_file', 'names_file', 'output_dir']:
+                config_dict[path_field] = Path(config_dict.get(path_field, Path('/dev/null')))
+            return NameSeqLearnerConfig(**config_dict)
 
 
 class NameSeqTransformer(nn.Module):

@@ -203,6 +203,19 @@ def fetch_api_keys() -> dict[str, str]:
     return {'huggingface': api_key} if api_key is not None else {}
 
 
+def select_device() -> torch.device:
+    """Select the best available device for PyTorch operations.
+
+    Returns:
+        torch.device: The selected device (CPU, CUDA, or MPS).
+    """
+    if torch.cuda.is_available():
+        return torch.device('cuda')
+    if torch.backends.mps.is_available():
+        return torch.device('mps')
+    return torch.device('cpu')
+
+
 def accuracy(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """Simple accuracy for discrete predictions."""
     assert x.shape == y.shape
@@ -289,11 +302,7 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
         self.model: Optional[M] = None
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
-        self.device: torch.device = torch.device('cpu')
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda')
-        if torch.backends.mps.is_available():
-            self.device = torch.device('mps')
+        self.device = select_device()
         self.logger.debug('Assigned device', device=self.device)
         torch.manual_seed(self.config.randseed)
         self.logger.debug('Set random seed', randseed=self.config.randseed)

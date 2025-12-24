@@ -2,6 +2,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": "${command:pickArgs}"
+        },
+        {
             "name": "Python Debugger: Current File with Dynamic Arguments",
             "type": "debugpy",
             "request": "launch",
@@ -10,12 +18,12 @@
             "args": "${command:pickArgs}"
         },
         {
-            "name": "Python Debugger: Current File with Fixed Arguments",
+            "name": "Python Debugger: Name seq shell with fixed model args",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": "--tokenizer_file ~/private/experiments/name_generator/human_names_tokenizer_n=3_20251109.0/token_dict.n=3.json --names_file ~/private/data/finnlp_humannames/human_names_list.txt --epochs=1 --batch_size=32"
-        }
+            "args": "--model_path ~/private/experiments/name_seq_learning/2025-12-23T02:33:08Z/trained_model.pt --tokenizer_path ~/private/experiments/name_seq_learning/token_dict.n=3.json --config_path ~/private/experiments/name_seq_learning/2025-12-21T19:18:49Z/config.json"
+        },
     ]
 }

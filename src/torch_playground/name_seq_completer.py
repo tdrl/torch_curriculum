@@ -8,8 +8,10 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional
 import structlog
 
-from torch_playground.util import BaseConfiguration, BaseApp
+from torch_playground.util import BaseConfiguration, BaseApp, select_device
 from torch_playground.tokenizer import NGramTokenizer
+from torch_playground.d04_name_seq_learner import NameSeqTransformer, NameSeqLearnerConfig
+
 
 __all__ = [
     'NameSeqCompleterConfig',
@@ -28,6 +30,13 @@ class NameSeqCompleterConfig(BaseConfiguration):
         default=Path('/dev/null'),
         metadata=BaseConfiguration._meta(
             help='Path to trained model (.pt file)',
+            required=True
+        )
+    )
+    config_path: Path = field(
+        default=Path('/dev/null'),
+        metadata=BaseConfiguration._meta(
+            help='Path to model config file (.json). Must match the config used to train the model.',
             required=True
         )
     )
@@ -79,11 +88,17 @@ class NameSeqPredictor:
     - Decode token IDs back to strings
     """
 
-    def __init__(self, model_path: Path, tokenizer_path: Path, device: str, logger: structlog.BoundLogger):
+    def __init__(self,
+                 model_path: Path,
+                 config_path: Path,
+                 tokenizer_path: Path,
+                 device: str,
+                 logger: structlog.BoundLogger):
         """Initialize the predictor with model and tokenizer.
 
         Args:
             model_path: Path to trained PyTorch model (.pt file)
+            config_path: Path to model configuration JSON file
             tokenizer_path: Path to tokenizer JSON file
             device: Device to run model on ('cpu' or 'cuda')
             logger: Structured logger instance
@@ -95,13 +110,19 @@ class NameSeqPredictor:
         try:
             self.tokenizer = NGramTokenizer.from_file(tokenizer_path)
             self.logger.info('Loaded tokenizer', vocab_size=self.tokenizer.vocab_size())
-        except Exception as e:
+        except (IOError, AssertionError) as e:
             self.logger.exception('Failed to load tokenizer', tokenizer_path=str(tokenizer_path), exc_info=e)
             raise
 
         # Load model
         try:
-            self.model = torch.load(model_path, map_location=device)
+            self.model_config = NameSeqLearnerConfig.from_json_file(config_path)
+            self.model_config.vocab_size = self.tokenizer.vocab_size()
+            with model_path.open('rb') as f:
+                model_state_dict = torch.load(f)
+            self.model = NameSeqTransformer.from_config(self.model_config)
+            self.model.load_state_dict(model_state_dict)
+            self.model = self.model.to(device)
             self.model.eval()  # Set to evaluation mode
             self.logger.info('Loaded model', model_path=str(model_path), device=device)
         except Exception as e:
@@ -270,7 +291,8 @@ class NameSeqCompleterApp(BaseApp[NameSeqCompleterConfig]):
             self.predictor = NameSeqPredictor(
                 model_path=self.config.model_path,
                 tokenizer_path=self.config.tokenizer_path,
-                device='cuda' if torch.cuda.is_available() else 'cpu',
+                config_path=self.config.config_path,
+                device=str(select_device()),
                 logger=self.logger
             )
 
@@ -384,7 +406,7 @@ class InteractiveShell(cmd.Cmd):
         'Type a prefix to complete it, or use commands below.\n'
         'Type "help" for available commands.\n'
     )
-    prompt = '(NameSeqCompleter) '
+    prompt = 'NSC> '
 
     def __init__(
         self,
