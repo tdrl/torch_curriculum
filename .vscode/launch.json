@@ -23,7 +23,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": "--model_path ~/private/experiments/name_seq_learning/2025-12-23T02:33:08Z/trained_model.pt --tokenizer_path ~/private/experiments/name_seq_learning/token_dict.n=3.json --config_path ~/private/experiments/name_seq_learning/2025-12-21T19:18:49Z/config.json"
+            "args": "--model_path ~/private/experiments/name_seq_learning/2025-12-23T02:33:08Z/trained_model.pt --tokenizer_path ~/private/experiments/name_seq_learning/token_dict.n=3.json --config_path ~/private/experiments/name_seq_learning/2025-12-21T19:18:49Z/config.json --max_predictions=3 --top_k=2 --loglevel=DEBUG"
         },
     ]
 }
