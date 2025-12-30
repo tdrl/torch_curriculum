@@ -91,6 +91,16 @@ class NameSeqTransformer(nn.Module):
                                   vocab_size=config.vocab_size,
                                   dtype=dtype)
 
+    @staticmethod
+    def from_trained_model(config_file: Path, model_params_file: Path, tokenizer: NGramTokenizer) -> 'NameSeqTransformer':
+        config = NameSeqLearnerConfig.from_json_file(config_file)
+        config.vocab_size = tokenizer.vocab_size()
+        with model_params_file.open('rb') as f:
+            model_state_dict = torch.load(f)
+        model = NameSeqTransformer.from_config(config)
+        model.load_state_dict(model_state_dict)
+        return model
+
     def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
         src_emb = self.embedding(src)

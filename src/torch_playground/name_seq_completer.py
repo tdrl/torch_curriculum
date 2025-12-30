@@ -116,16 +116,13 @@ class NameSeqPredictor:
 
         # Load model
         try:
-            self.model_config = NameSeqLearnerConfig.from_json_file(config_path)
-            self.model_config.vocab_size = self.tokenizer.vocab_size()
-            with model_path.open('rb') as f:
-                model_state_dict = torch.load(f)
-            self.model = NameSeqTransformer.from_config(self.model_config)
-            self.model.load_state_dict(model_state_dict)
+            self.model = NameSeqTransformer.from_trained_model(config_file=config_path,
+                                                               model_params_file=model_path,
+                                                               tokenizer=self.tokenizer)
             self.model = self.model.to(device)
             self.model.eval()  # Set to evaluation mode
             self.logger.info('Loaded model', model_path=str(model_path), device=device)
-        except Exception as e:
+        except IOError as e:
             self.logger.exception('Failed to load model', model_path=str(model_path), exc_info=e)
             raise
 
