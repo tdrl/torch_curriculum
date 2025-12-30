@@ -6,6 +6,8 @@ import logging
 import logging.config
 from dataclasses import dataclass, fields, field, asdict
 import argparse
+import typing
+import types
 from typing import Optional
 import os
 import sys
@@ -84,11 +86,30 @@ def parse_cmd_line_args[T: BaseConfiguration](arg_template: T, description: Opti
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=description)
     for field in fields(arg_template):
-        parser.add_argument(f'--{field.name}',
-                            type=field.type,
-                            default=field.default,
-                            help=field.metadata.get('help', f'{field.default}'),
-                            required=field.metadata.get('required', False))
+        # Handle union types (e.g., str | None) by extracting the non-None type
+        field_type = field.type
+
+        # Check for types.UnionType (from | syntax in Python 3.10+)
+        if hasattr(types, 'UnionType') and isinstance(field_type, types.UnionType):
+            args = typing.get_args(field_type)
+            field_type = next((arg for arg in args if arg is not type(None)), str)
+        # Check for typing.Union (e.g., Optional[str] from typing)
+        elif hasattr(typing, 'get_origin'):
+            origin = typing.get_origin(field_type)
+            if origin is typing.Union:
+                args = typing.get_args(field_type)
+                field_type = next((arg for arg in args if arg is not type(None)), str)
+
+        # Only pass type if it's callable
+        kwargs = {
+            'default': field.default,
+            'help': field.metadata.get('help', f'{field.default}'),
+            'required': field.metadata.get('required', False),
+        }
+        if callable(field_type):
+            kwargs['type'] = field_type
+
+        parser.add_argument(f'--{field.name}', **kwargs)
     args = parser.parse_args(argv, namespace=arg_template)
     return args
 
@@ -182,6 +203,19 @@ def fetch_api_keys() -> dict[str, str]:
     return {'huggingface': api_key} if api_key is not None else {}
 
 
+def select_device() -> torch.device:
+    """Select the best available device for PyTorch operations.
+
+    Returns:
+        torch.device: The selected device (CPU, CUDA, or MPS).
+    """
+    if torch.cuda.is_available():
+        return torch.device('cuda')
+    if torch.backends.mps.is_available():
+        return torch.device('mps')
+    return torch.device('cpu')
+
+
 def accuracy(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """Simple accuracy for discrete predictions."""
     assert x.shape == y.shape
@@ -268,11 +302,7 @@ class TrainableModelApp[T: BaseConfiguration, M: torch.nn.Module](BaseApp[T]):
         self.model: Optional[M] = None
         self.dtype = torch.float32
         torch.set_default_dtype(self.dtype)
-        self.device: torch.device = torch.device('cpu')
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda')
-        if torch.backends.mps.is_available():
-            self.device = torch.device('mps')
+        self.device = select_device()
         self.logger.debug('Assigned device', device=self.device)
         torch.manual_seed(self.config.randseed)
         self.logger.debug('Set random seed', randseed=self.config.randseed)

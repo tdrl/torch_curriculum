@@ -2,6 +2,8 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torch_playground.d04_name_seq_learner import PaddingCollate, NameSeqLearnerConfig, NameSeqTransformer
 from test_util import with_eligible_devices
+from pathlib import Path
+import json
 
 class RaggedListDataset(Dataset):
     def __init__(self, data: list[list[int]]):
@@ -13,6 +15,27 @@ class RaggedListDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.data[idx]
+
+
+class TestNameSeqLearnerConfig:
+
+    def test_from_json(self, tmp_path: Path):
+        orig_config = NameSeqLearnerConfig(d_embedding=12,  # Has to be multiple of n_heads.
+                                           d_feedforward=10,
+                                           n_heads=4,
+                                           n_encoder_layers=2,
+                                           n_decoder_layers=2,
+                                           vocab_size=12,
+                                           in_seq_length=5,
+                                           out_seq_length=5,
+                                           names_file=Path('names.txt'),
+                                           tokenizer_file=Path('tokenizer.json'),
+                                           output_dir=Path(tmp_path / 'output'))
+        config_file = tmp_path / 'config.json'
+        with open(config_file, 'w') as f:
+            json.dump(orig_config.__dict__, f, indent=2, default=lambda o: str(o))
+        loaded_config = NameSeqLearnerConfig.from_json_file(config_file)
+        assert orig_config == loaded_config
 
 
 class TestPaddingCollate:
@@ -59,6 +82,8 @@ class TestPaddingCollate:
         assert torch.equal(tgt, expected_tgt), f'Got {tgt}, expected {expected_tgt}'
         assert torch.equal(goal, expected_tgt), f'Got {goal}, expected {expected_tgt}'
 
+
+class TestNameSeqTransformer:
     @with_eligible_devices()
     def test_forward_with_device(self, device):
         config = NameSeqLearnerConfig(d_embedding=12,  # Has to be multiple of n_heads.
